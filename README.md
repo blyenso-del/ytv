@@ -1,9 +1,12 @@
 # YTV
 
-纯播放 IPTV 客户端（Android / Android TV），包名 `com.blyen.ytv`。
+<div align="center">
+  <img src="y.png" alt="YTV Logo" width="120">
+</div>
 
-启动后从远程 M3U 加载频道列表并起播，聚焦换台、换源与稳定播放，不含设置页、用户验证、应用内更新等业务。
+>🎬 **YTV** 是一个开箱即用的,纯播放 IPTV 客户端（Android / Android TV）。启动后从远程 M3U 加载频道列表并起播，聚焦换台、换源与稳定播放。
 
+---
 ## 功能
 
 - **远程频道列表**：默认拉取  
@@ -51,17 +54,18 @@ MainActivity
 ./gradlew :app:assembleDebug
 ```
 
-Debug APK 输出：
+## 下载
 
-```text
-app/build/outputs/apk/debug/ytv_v0.1.apk
-```
+Release 预编译包：
+
+- **[ytv_v0.1.apk](https://github.com/blyenso-del/ytv/releases/download/v0.1/ytv_v0.1.apk)**
+- 发布页：https://github.com/blyenso-del/ytv/releases/tag/v0.1
 
 ## 安装
 
 ```bash
 adb uninstall com.blyen.ytv   # 签名不一致时需先卸载
-adb push app/build/outputs/apk/debug/ytv_v0.1.apk /data/local/tmp/ytv_debug.apk
+adb push ytv_v0.1.apk /data/local/tmp/ytv_debug.apk
 adb shell pm install -r -t /data/local/tmp/ytv_debug.apk
 adb shell am start -n com.blyen.ytv/.MainActivity
 ```

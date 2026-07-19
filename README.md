@@ -57,12 +57,6 @@ Debug APK 输出：
 app/build/outputs/apk/debug/ytv_v0.1.apk
 ```
 
-Release 需自备签名文件（仓库不包含 keystore），并可通过 Gradle 属性配置：
-
-- `YTV_STORE_PASSWORD`
-- `YTV_KEY_ALIAS`
-- `YTV_KEY_PASSWORD`
-
 ## 安装
 
 ```bash
@@ -76,9 +70,8 @@ adb shell am start -n com.blyen.ytv/.MainActivity
 
 | 来源 | 说明 |
 |------|------|
-| 远程 | `https://sub.blyen.ccwu.cc/channels.txt`（GitHub Pages 自定义域名） |
+| 远程 | `https://sub.blyen.ccwu.cc/channels.txt`
 | 缓存 | 应用私有目录 `channels_remote_cache.txt` |
-| 内置 raw | 已移除；无网且无缓存时无频道可播 |
 
 更新频道：修改托管仓库中的 `channels.txt` 并推送后，重新打开 App 即可（有短超时；失败则用缓存）。
 
@@ -92,12 +85,7 @@ adb shell am start -n com.blyen.ytv/.MainActivity
 | 右键 | 换源 |
 | ▲▼ | 换台 |
 
-## 说明
-
-- `PLAYBACK_ONLY=true`：构建期写死，起播逻辑按纯播放精简
-- 不含 WebView 播放栈、设置大 UI、源加密编码
-- 远程列表为公开 URL，请勿在 M3U 中写入账号密码等敏感信息
 
 ## License
 
-私有/未声明。若开源请自行补充许可证文件。
+[MIT](LICENSE) © 2026 blyen

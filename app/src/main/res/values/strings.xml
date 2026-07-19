@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">YTV</string>
+    <string name="change_source">CGSR</string>
+    <string name="channel_name">Channel Name</string>
+    <string name="channel_name_with_tip">%s    Res Only for Played Src</string>
+    <string name="source_info">Line %1$d Res.: %2$s, Ping: %3$s</string>
+    <string name="total_sources">Total Srcs: %d</string>
+    <string name="current_source">Curr Src: %d</string>
+    <string name="loading">Loading...</string>
+    <string name="unknown">Unknown</string>
+    <string name="timeout">Timeout</string>
+    <string name="no_channel_data">No Channel Data</string>
+    <string name="default_iptv_channel">IPTV Channels</string>
+    <string name="parsing_live_source">Parsing live source... Do not operate!</string>
+    <string name="channel_read_error">Channel read error</string>
+    <string name="channel_import_error">Channel import failed</string>
+    <string name="file_not_exist">File not found</string>
+    <string name="channel_not_exist">Channel not found</string>
+    <string name="my_favorites">My favorites</string>
+    <string name="all_channels">All channels</string>
+    <string name="initialization_error">Initialization error</string>
+    <string name="no_current_tv_model">No live source</string>
+    <string name="no_available_sources">No live source available</string>
+    <string name="press_back_exit">Press back again to exit</string>
+    <string name="play_error">Play error</string>
+    <string name="wait_10_seconds">Wait 10 seconds, retry</string>
+    <string name="unknown_source">Unknown source</string>
+    <string name="load_failed">Load failed: %1$s</string>
+    <string name="switched_to">Switched to %1$s</string>
+</resources>

@@ -1,0 +1,29 @@
+{
+  "version_code": 10,
+  "version_name": "0.1",
+  "apk_url": "https://github.com/blyen/ytv/releases/download/v0.1/ytv_v0.1.apk",
+  "apk_name": "ytv_v0.1.apk",
+  "description": "package rename com.blyen.ytv",
+  "apks": {
+    "universal": {
+      "name": "ytv_v0.1_universal.apk",
+      "url": "https://github.com/blyen/ytv/releases/download/v0.1/ytv_v0.1_universal.apk"
+    },
+    "armeabi-v7a": {
+      "name": "ytv_v0.1_armeabi-v7a.apk",
+      "url": "https://github.com/blyen/ytv/releases/download/v0.1/ytv_v0.1_armeabi-v7a.apk"
+    },
+    "arm64-v8a": {
+      "name": "ytv_v0.1_arm64-v8a.apk",
+      "url": "https://github.com/blyen/ytv/releases/download/v0.1/ytv_v0.1_arm64-v8a.apk"
+    },
+    "x86": {
+      "name": "ytv_v0.1_x86.apk",
+      "url": "https://github.com/blyen/ytv/releases/download/v0.1/ytv_v0.1_x86.apk"
+    },
+    "x86_64": {
+      "name": "ytv_v0.1_x86_64.apk",
+      "url": "https://github.com/blyen/ytv/releases/download/v0.1/ytv_v0.1_x86_64.apk"
+    }
+  }
+}

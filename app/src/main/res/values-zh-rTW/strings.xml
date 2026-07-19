@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">YTV</string>
+    <string name="change_source">換源</string>
+    <string name="channel_name">頻道名稱</string>
+    <string name="channel_name_with_tip">%s    播放過的源才顯示解析度</string>
+    <string name="source_info">線路%1$d   解析度:%2$s, Ping:%3$s</string>
+    <string name="total_sources">總線路數: %d</string>
+    <string name="current_source">當前線路: %d</string>
+    <string name="loading">載入中...</string>
+    <string name="unknown">未知</string>
+    <string name="timeout">超時</string>
+    <string name="no_channel_data">無頻道資料</string>
+    <string name="default_iptv_channel">IPTV 頻道</string>
+    <string name="parsing_live_source">直播源檔案解析中。。。請勿操作！</string>
+    <string name="channel_read_error">頻道讀取錯誤</string>
+    <string name="channel_import_error">頻道匯入失敗</string>
+    <string name="file_not_exist">檔案不存在</string>
+    <string name="channel_not_exist">頻道不存在</string>
+    <string name="my_favorites">我的收藏</string>
+    <string name="all_channels">全部頻道</string>
+    <string name="initialization_error">初始化錯誤</string>
+    <string name="no_current_tv_model">無直播源</string>
+    <string name="no_available_sources">無可用直播源</string>
+    <string name="press_back_exit">再按一次返回退出</string>
+    <string name="play_error">播放錯誤</string>
+    <string name="wait_10_seconds">請等待 10 秒後重試</string>
+    <string name="unknown_source">未知源</string>
+    <string name="load_failed">載入失敗: %1$s</string>
+    <string name="switched_to">已切換到 %1$s</string>
+</resources>

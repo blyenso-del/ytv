@@ -184,22 +184,8 @@ class TVModel(var tv: TV) : ViewModel() {
                 sourceTypeIndex = max(0, min(sourceTypeList.size - 1, sourceTypeIndex))
             }
 
-            // 直播 HLS：平衡起播稳定与音画；maxOffset 过紧会抖网狂转圈
-            val isLiveLike = sourceTypeList.firstOrNull() == SourceType.HLS
-                    || sourceTypeList.contains(SourceType.HLS)
-            val builder = MediaItem.Builder().setUri(it)
-            if (isLiveLike) {
-                builder.setLiveConfiguration(
-                    MediaItem.LiveConfiguration.Builder()
-                        .setTargetOffsetMs(3_000)
-                        .setMinOffsetMs(1_500)
-                        .setMaxOffsetMs(8_000)
-                        .setMinPlaybackSpeed(0.98f)
-                        .setMaxPlaybackSpeed(1.06f)
-                        .build()
-                )
-            }
-            builder.build()
+            // 对齐 GitHub YourTV：默认 MediaItem，不强制 LiveConfiguration（避免贴边过紧卡顿）
+            MediaItem.Builder().setUri(it).build()
         }
         return _mediaItem
     }
@@ -249,7 +235,7 @@ class TVModel(var tv: TV) : ViewModel() {
 
         return when (getSourceTypeCurrent()) {
             SourceType.HLS -> HlsMediaSource.Factory(httpDataSource)
-                // 适度重试：减少分片抖动/丢片引发的 discontinuity 与 A/V 错位
+                // 与 GitHub 一致保留重试；chunkless 加快无 INIT 的 master 起播
                 .setLoadErrorHandlingPolicy(
                     androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy(3)
                 )

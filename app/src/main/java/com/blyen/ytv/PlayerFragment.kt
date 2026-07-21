@@ -22,16 +22,13 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
-import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.Player.DISCONTINUITY_REASON_AUTO_TRANSITION
 import androidx.media3.common.Player.REPEAT_MODE_ALL
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
@@ -43,7 +40,6 @@ import com.blyen.ytv.data.StableSource
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import com.blyen.ytv.data.TV
 import android.app.PictureInPictureParams
 import android.content.BroadcastReceiver
@@ -59,6 +55,7 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import com.blyen.ytv.requests.HttpClient
+import java.io.File
 import java.util.concurrent.Executors
 
 
@@ -106,7 +103,10 @@ class PlayerFragment : Fragment() {
      * 起播后长时间进不了 READY/播放 → 必须 cancel 网络 + 异步 release，
      * 否则 HLS 一直拉分片 / 主线程 release 卡死 → 死机。
      */
-    /** 加载超时（4K 与普通统一 30s，靠换台即时 abort 防假死） */
+    /**
+     * 加载超时底线（GitHub 无此项；保留防假死，不按 4K 双模式）。
+     * 正常流畅靠默认缓冲 + 换台 abort，不靠贴边/狂 seek。
+     */
     private val loadTimeoutMs = 30_000L
     private var activeLoadTimeoutMs = loadTimeoutMs
     private var loadWatchGeneration = -1
@@ -116,18 +116,8 @@ class PlayerFragment : Fragment() {
     private val loadTimeoutRunnable = Runnable {
         onLoadTimeout()
     }
-    /** 出画后再长时间 BUFFERING / 假 READY → 硬杀（略放宽，避免抖网狂杀） */
-    private val rebufferTimeoutMs = 15_000L
-    private val rebufferWatchRunnable = Runnable { onRebufferTimeout() }
     private var everPlayedCurrent = false
-    /** 出画后长 rebuffer（>3s）结束才 seek 纠偏，避免短缓冲反复 seek→转圈 */
-    private var needAvResyncAfterBuffer = false
-    private var rebufferStartedAt = 0L
-    private var lastLiveResyncAt = 0L
-    private val minLiveResyncIntervalMs = 30_000L
     private var trackSelector: DefaultTrackSelector? = null
-    /** 当前是否「仅 4K / 高清重载」模式（超时仍 12s） */
-    private var heavyOnly4kMode = false
     /** release 卡主线程是死机常见原因，放到后台 */
     private val playerReleaseExecutor = Executors.newSingleThreadExecutor { r ->
         Thread(r, "exo-release").apply { isDaemon = true }
@@ -148,11 +138,25 @@ class PlayerFragment : Fragment() {
         val model = pendingPlayModel
         pendingPlayModel = null
         if (model != null) {
-            // 用户 zap 时通常已 abort；此处再保底一次再起播
-            if (player != null || isPreparing) {
-                abortCurrentPlayback("settle-play")
-            }
+            // 对齐 GitHub：复用 player，只 softStop 再 prepare（全量 release 易切台后起不来）
+            softStopCurrent("settle-play")
             playInternal(model, playGeneration)
+        }
+    }
+
+    /** 可 pull 的调试日志（本机 logcat 常被滤空） */
+    private fun dbg(msg: String) {
+        Log.i(TAG, msg)
+        try {
+            val ctx = context ?: return
+            val f = File(ctx.filesDir, "player_debug.log")
+            f.appendText("${System.currentTimeMillis()} $msg\n")
+            // 控制体积
+            if (f.length() > 256 * 1024) {
+                val lines = f.readLines()
+                f.writeText(lines.takeLast(400).joinToString("\n") + "\n")
+            }
+        } catch (_: Exception) {
         }
     }
 
@@ -179,13 +183,13 @@ class PlayerFragment : Fragment() {
      */
     @OptIn(UnstableApi::class)
     fun abortForZap() {
-        abortCurrentPlayback("activity-zap")
+        // Activity settle：只停流不销毁 player，对齐 GitHub 切台
+        softStopCurrent("activity-zap")
     }
 
     /**
      * 主线程立刻静音+暂停。必须在丢弃 player 引用的同一拍执行，
      * 否则异步 release 排队期间旧台声音会继续出（叠音）。
-     * 不做 stop/release：解码器半死时会卡 UI。
      */
     @OptIn(UnstableApi::class)
     private fun silencePlayerImmediate(p: ExoPlayer?) {
@@ -204,7 +208,44 @@ class PlayerFragment : Fragment() {
         }
     }
 
-    /** 主线程静音后，后台 release；避免旧 AudioTrack 残留出声 */
+    /**
+     * 换台 soft-stop：静音 + stop + clearMedia + cancel 网络，**保留 ExoPlayer 实例**。
+     * 对齐 GitHub switchSource；比全量 release 更不易切台后起不来。
+     */
+    @OptIn(UnstableApi::class)
+    private fun softStopCurrent(reason: String) {
+        handler.removeCallbacks(checkPlaybackRunnable)
+        handler.removeCallbacks(stableSourceCheckRunnable)
+        handler.removeCallbacks(loadTimeoutRunnable)
+        isPreparing = false
+        loadWatchGeneration = -1
+        loadDeadlineElapsed = 0L
+        everPlayedCurrent = false
+        preparedGeneration = -1
+        bufferingCount = 0
+        bufferingStartTime = 0L
+        bufferingTimestamps.clear()
+        lastStopTime = 0L
+        try {
+            HttpClient.cancelAllCalls()
+        } catch (_: Exception) {
+        }
+        val p = player
+        if (p != null) {
+            silencePlayerImmediate(p)
+            try {
+                p.stop()
+            } catch (_: Exception) {
+            }
+            try {
+                p.clearMediaItems()
+            } catch (_: Exception) {
+            }
+        }
+        dbg("softStop: $reason gen=$playGeneration player=${p != null}")
+    }
+
+    /** 主线程静音后，后台 release；仅超时/错误/销毁使用 */
     @OptIn(UnstableApi::class)
     private fun releasePlayerAsync(p: ExoPlayer?, reason: String) {
         if (p == null) return
@@ -219,7 +260,6 @@ class PlayerFragment : Fragment() {
                     p.playWhenReady = false
                 } catch (_: Exception) {
                 }
-                // 不先 stop：卡死解码器上 stop 会挂；release 一次即可
                 p.release()
             } catch (e: Exception) {
                 Log.w(TAG, "async player.release ($reason): ${e.message}")
@@ -232,16 +272,12 @@ class PlayerFragment : Fragment() {
         handler.removeCallbacks(checkPlaybackRunnable)
         handler.removeCallbacks(stableSourceCheckRunnable)
         handler.removeCallbacks(loadTimeoutRunnable)
-        handler.removeCallbacks(rebufferWatchRunnable)
         isPreparing = false
         loadWatchGeneration = -1
         loadDeadlineElapsed = 0L
         everPlayedCurrent = false
-        needAvResyncAfterBuffer = false
-        rebufferStartedAt = 0L
         val p = player
         player = null
-        // 先静音再解绑，杜绝换台叠音
         silencePlayerImmediate(p)
         try {
             if (_binding != null) {
@@ -249,7 +285,6 @@ class PlayerFragment : Fragment() {
             }
         } catch (_: Exception) {
         }
-        // 先掐断网络，比 release 更快止住分片下载
         try {
             HttpClient.cancelAllCalls()
         } catch (_: Exception) {
@@ -260,7 +295,7 @@ class PlayerFragment : Fragment() {
         bufferingStartTime = 0L
         bufferingTimestamps.clear()
         preparedGeneration = -1
-        Log.i(TAG, "abortCurrentPlayback async: $reason gen=$playGeneration")
+        dbg("abortCurrentPlayback: $reason gen=$playGeneration")
     }
 
     private fun scheduleLoadTimeout(generation: Int) {
@@ -269,7 +304,7 @@ class PlayerFragment : Fragment() {
         val ms = activeLoadTimeoutMs
         loadDeadlineElapsed = android.os.SystemClock.elapsedRealtime() + ms
         handler.postDelayed(loadTimeoutRunnable, ms)
-        Log.i(TAG, "loadTimeout scheduled ${ms}ms gen=$generation heavy4k=$heavyOnly4kMode")
+        Log.i(TAG, "loadTimeout scheduled ${ms}ms gen=$generation")
     }
 
     private fun cancelLoadTimeout() {
@@ -278,67 +313,23 @@ class PlayerFragment : Fragment() {
         loadDeadlineElapsed = 0L
     }
 
-    private fun scheduleRebufferWatch() {
-        handler.removeCallbacks(rebufferWatchRunnable)
-        handler.postDelayed(rebufferWatchRunnable, rebufferTimeoutMs)
-    }
-
-    private fun cancelRebufferWatch() {
-        handler.removeCallbacks(rebufferWatchRunnable)
-    }
-
     /**
-     * 仅在长 rebuffer 后节流 seek 纠偏。
-     * 频繁 seekToDefaultPosition 会反复进 BUFFERING → 用户感觉「动不动转圈」。
-     */
-    @OptIn(UnstableApi::class)
-    private fun resyncLiveEdgeIfNeeded(reason: String, minRebufferMs: Long = 3_000L) {
-        if (pendingPlayModel != null || isPreparing) return
-        val p = player ?: return
-        if (preparedGeneration != playGeneration) return
-        val now = System.currentTimeMillis()
-        if (now - lastLiveResyncAt < minLiveResyncIntervalMs) {
-            Log.d(TAG, "resync skip (throttle) $reason")
-            return
-        }
-        val rebufferMs = if (rebufferStartedAt > 0L) now - rebufferStartedAt else 0L
-        if (rebufferMs < minRebufferMs && reason != "prepare") {
-            return
-        }
-        try {
-            if (p.playbackParameters.speed !in 0.97f..1.07f) {
-                p.playbackParameters = PlaybackParameters(1f)
-            }
-            p.seekToDefaultPosition()
-            if (p.volume < 0.99f) p.volume = 1f
-            lastLiveResyncAt = now
-            rebufferStartedAt = 0L
-            Log.i(TAG, "resyncLiveEdge ($reason rebuffer=${rebufferMs}ms) ${tvModel?.tv?.title}")
-        } catch (e: Exception) {
-            Log.w(TAG, "resyncLiveEdge: ${e.message}")
-        }
-    }
-
-    /**
-     * 超时硬杀：停网 + 异步 release + 提示错误。
-     * **不再自动连环换台**（下一台也可能是 4K 坏源，会再次拖死）。
+     * 超时硬杀：停网 + 异步 release + 提示（GitHub 无此项；仅作假死底线）。
+     * 不连环自动换台。
      */
     @OptIn(UnstableApi::class)
     private fun onLoadTimeout() {
         if (pendingPlayModel != null) {
-            // 换台中：禁止续命；user-zap 已 abort，此处只取消
             cancelLoadTimeout()
             return
         }
         val p = player
         val tv = tvModel
-        // 已在播
         if (p != null && p.isPlaying) {
             consecutiveLoadTimeouts = 0
             cancelLoadTimeout()
             return
         }
-        // 假 READY 黑屏也杀
         val stillLoading = p != null && (
                 p.playbackState == Player.STATE_BUFFERING
                         || p.playbackState == Player.STATE_IDLE
@@ -354,7 +345,6 @@ class PlayerFragment : Fragment() {
             "LOAD TIMEOUT HARD KILL #${consecutiveLoadTimeouts}: ${tv?.tv?.title} state=${p?.playbackState} url=${tv?.getVideoUrl()}"
         )
         abortCurrentPlayback("load-timeout")
-        // 给后台 release 一点时间再提示
         handler.postDelayed({
             try {
                 tv?.setErrInfo(R.string.play_error.getString())
@@ -364,12 +354,7 @@ class PlayerFragment : Fragment() {
             } catch (_: Exception) {
             }
         }, 200)
-        // 4K / heavy：只提示，不连环重试
-        if (heavyOnly4kMode) {
-            consecutiveLoadTimeouts = 0
-            return
-        }
-        // 普通源：可再试一条线路
+        // 可再试一条线路
         if (consecutiveLoadTimeouts < maxConsecutiveLoadTimeouts && tv != null && !tv.isLastVideo()) {
             handler.postDelayed({
                 if (pendingPlayModel != null) return@postDelayed
@@ -385,34 +370,6 @@ class PlayerFragment : Fragment() {
         } else {
             consecutiveLoadTimeouts = 0
         }
-    }
-
-    /** 出画后长时间缓冲/假 READY → 硬杀，用户可手动换台 */
-    @OptIn(UnstableApi::class)
-    private fun onRebufferTimeout() {
-        if (pendingPlayModel != null) return
-        val p = player ?: return
-        if (p.isPlaying) {
-            cancelRebufferWatch()
-            return
-        }
-        if (!everPlayedCurrent) return
-        val stuck = p.playbackState == Player.STATE_BUFFERING
-                || (p.playbackState == Player.STATE_READY && p.playWhenReady && !p.isPlaying)
-                || p.playbackState == Player.STATE_IDLE
-        if (!stuck) return
-        val tv = tvModel
-        Log.w(TAG, "REBUFFER TIMEOUT: ${tv?.tv?.title} state=${p.playbackState} heavy=$heavyOnly4kMode")
-        abortCurrentPlayback("rebuffer-timeout")
-        handler.postDelayed({
-            try {
-                tv?.setErrInfo(R.string.play_error.getString())
-                if (isAdded && context != null) {
-                    Toast.makeText(requireContext(), "播放卡住，请换台", Toast.LENGTH_SHORT).show()
-                }
-            } catch (_: Exception) {
-            }
-        }, 200)
     }
 
     @OptIn(UnstableApi::class)
@@ -599,13 +556,16 @@ class PlayerFragment : Fragment() {
             Log.e(TAG, "context == null")
             return
         }
+        // heavyOnly4k 参数保留兼容调用方，播放策略已与 GitHub 对齐为单一默认路径
+        @Suppress("UNUSED_PARAMETER")
+        val _unusedHeavy = heavyOnly4k
 
         val ctx = requireContext()
         val playerView = binding.playerView
         val renderersFactory = DefaultRenderersFactory(ctx)
         val playerMediaCodecSelector = PlayerMediaCodecSelector()
         renderersFactory.setMediaCodecSelector(playerMediaCodecSelector)
-        // PLAYBACK_ONLY：强制硬解
+        // PLAYBACK_ONLY：强制硬解（优于 GitHub 可软解，避免有声无画）
         val preferSoft = !BuildConfig.PLAYBACK_ONLY && SP.softDecode && isTouchScreenDevice()
         renderersFactory.setExtensionRendererMode(
             if (preferSoft) DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
@@ -613,37 +573,21 @@ class PlayerFragment : Fragment() {
         )
         renderersFactory.setEnableDecoderFallback(true)
 
-        // 旧 player：主线程立刻静音，再异步 release（防换台叠音）
+        // 旧 player：主线程立刻静音，再异步 release（防换台叠音；GitHub 主线程 release 易卡）
         val old = player
         player = null
         playerView.player = null
         releasePlayerAsync(old, "updatePlayer")
 
-        heavyOnly4kMode = heavyOnly4k
-        // 4K 与普通统一 12s；防假死靠换台即时 abort，不靠饿超时
         activeLoadTimeoutMs = loadTimeoutMs
 
-        // 中间档：够抗抖网，又不过度远离 live edge（20s 易音画漂，10s 易狂转圈）
-        val loadControl = if (heavyOnly4k) {
-            DefaultLoadControl.Builder()
-                .setBufferDurationsMs(3_500, 18_000, 2_500, 3_000)
-                .setTargetBufferBytes(20 * 1024 * 1024)
-                .setPrioritizeTimeOverSizeThresholds(true)
-                .build()
-        } else {
-            DefaultLoadControl.Builder()
-                .setBufferDurationsMs(3_000, 15_000, 2_000, 2_500)
-                .setTargetBufferBytes(16 * 1024 * 1024)
-                .setPrioritizeTimeOverSizeThresholds(true)
-                .build()
-        }
-
-        // 有多档时强制 ≤1080p；仅 4K 时允许超限才能播
+        // 对齐 GitHub：不自定义 LoadControl，用 Media3 默认缓冲（更贴近上游起播/抗抖）
+        // 多档仍 cap 1080p，避免手机硬扛 4K 死机（GitHub 无 cap，此处保留为最优）
         val ts = DefaultTrackSelector(ctx)
         ts.parameters = ts.buildUponParameters()
             .setMaxVideoSize(1920, 1080)
-            .setMaxVideoBitrate(if (heavyOnly4k) 25_000_000 else 8_000_000)
-            .setExceedVideoConstraintsIfNecessary(heavyOnly4k)
+            .setMaxVideoBitrate(8_000_000)
+            .setExceedVideoConstraintsIfNecessary(true)
             .setForceHighestSupportedBitrate(false)
             .build()
         trackSelector = ts
@@ -651,13 +595,10 @@ class PlayerFragment : Fragment() {
         player = ExoPlayer.Builder(ctx)
             .setRenderersFactory(renderersFactory)
             .setTrackSelector(ts)
-            .setLoadControl(loadControl)
-            .setSeekParameters(SeekParameters.CLOSEST_SYNC)
             .build()
         player?.repeatMode = Player.REPEAT_MODE_OFF
         player?.playWhenReady = true
         player?.volume = 1f
-        // 统一媒体时钟域；不抢音频焦点（电视/后台切台不因 focus 暂停）
         try {
             player?.setAudioAttributes(
                 AudioAttributes.Builder()
@@ -671,14 +612,7 @@ class PlayerFragment : Fragment() {
         player?.addListener(object : Player.Listener {
             override fun onVideoSizeChanged(videoSize: VideoSize) {
                 if (!isInPictureInPictureMode) {
-                    updatePlayerViewLayout() // Call new method to handle layout
-                }
-                // 起播后实测 4K：标记 heavy，启用 rebuffer 看门狗（不重建 player）
-                if (videoSize.width >= 3840 || videoSize.height >= 2160) {
-                    if (!heavyOnly4kMode) {
-                        heavyOnly4kMode = true
-                        Log.w(TAG, "runtime 4K detected: ${videoSize.width}x${videoSize.height}")
-                    }
+                    updatePlayerViewLayout()
                 }
                 Log.i(TAG, "Video size changed: ${videoSize.width}x${videoSize.height}")
             }
@@ -699,66 +633,37 @@ class PlayerFragment : Fragment() {
                     consecutiveLoadTimeouts = 0
                     everPlayedCurrent = true
                     cancelLoadTimeout()
-                    cancelRebufferWatch()
                     bufferingCount = 0
                     bufferingStartTime = 0L
                     bufferingTimestamps.clear()
                     lastBufferingTime = 0L
                     playbackStartTime = System.currentTimeMillis()
                     playbackCallback?.onPlaybackStarted()
-                    lastStopTime = 0L // 重置停止时间
+                    lastStopTime = 0L
                     consecutiveHeavySkips = 0
                     try {
                         player?.volume = 1f
                     } catch (_: Exception) {
                     }
-                    // 不再每次 isPlaying 都 seek（会连环转圈）
-                    Log.i(TAG, "${tv.tv.title} is playing")
+                    dbg("is playing: ${tv.tv.title} #${tv.tv.number}")
 
                 } else {
                     isStable = false
-                    playbackStartTime = 0L // 重置计时
-                    lastStopTime = System.currentTimeMillis() // 记录停止时间
-                    // 仅在仍 BUFFERING 时盯死锁；短暂 !isPlaying 不杀
-                    if (everPlayedCurrent && pendingPlayModel == null
-                        && player?.playbackState == Player.STATE_BUFFERING
-                    ) {
-                        scheduleRebufferWatch()
-                    }
-                    Log.i(TAG, "${tv.tv.title} 播放停止")
+                    playbackStartTime = 0L
+                    lastStopTime = System.currentTimeMillis()
+                    dbg("playback stop: ${tv.tv.title}")
                 }
             }
 
             override fun onPlaybackStateChanged(state: Int) {
-                // READY 即取消加载超时（有时 isPlaying 稍晚）
                 if (state == Player.STATE_READY) {
                     consecutiveLoadTimeouts = 0
-                    // 仍未真正出画则保留 timeout；能 isPlaying 会在上面取消
                     if (player?.isPlaying == true) {
                         cancelLoadTimeout()
-                        cancelRebufferWatch()
-                    } else if (everPlayedCurrent && player?.playWhenReady == true) {
-                        // 假 READY 不播
-                        scheduleRebufferWatch()
                     }
-                    // 仅长 rebuffer 结束后节流 seek，短抖不碰
-                    if (needAvResyncAfterBuffer && pendingPlayModel == null) {
-                        needAvResyncAfterBuffer = false
-                        resyncLiveEdgeIfNeeded("after-rebuffer", minRebufferMs = 3_000L)
-                    }
-                    rebufferStartedAt = 0L
                 }
-                // 加载超时看门狗与 autoSwitch 无关，始终有效
                 if (state == Player.STATE_BUFFERING && loadWatchGeneration < 0 && preparedGeneration == playGeneration) {
                     scheduleLoadTimeout(playGeneration)
-                }
-                // 出画后再 BUFFERING：记起点 + 15s 硬杀
-                if (state == Player.STATE_BUFFERING && everPlayedCurrent && pendingPlayModel == null) {
-                    if (rebufferStartedAt == 0L) {
-                        rebufferStartedAt = System.currentTimeMillis()
-                    }
-                    needAvResyncAfterBuffer = true
-                    scheduleRebufferWatch()
                 }
 
                 if (!SP.autoSwitchSource) return
@@ -1366,23 +1271,21 @@ class PlayerFragment : Fragment() {
         preparedGeneration = -1 // 作废旧错误回调
         everPlayedCurrent = false
 
-        // 立刻停旧流（cancel 网络 + 异步 release），settle 只合并最终 prepare
-        // 解决：4K 转圈时按键切台无效 / 旧解码器继续占资源
+        // 立刻 soft-stop 旧流（保留 player），settle 只合并最终 prepare
         if (player != null || isPreparing || switchingAway || loading) {
-            abortCurrentPlayback("user-zap")
+            softStopCurrent("user-zap")
         }
 
         handler.removeCallbacks(playLatestRunnable)
-        // force（菜单）几乎立刻起播；连切稍等；首播立即
         val actualDelay = when {
             force -> 50L
             player == null && gen <= 1 && !switchingAway -> 0L
             else -> 200L
         }
-        Log.i(TAG, "play schedule: ${tvModel.tv.title} delay=${actualDelay}ms gen=$gen force=$force switch=$switchingAway loading=$loading")
+        dbg("play schedule: ${tvModel.tv.title} delay=${actualDelay}ms gen=$gen force=$force #${tvModel.tv.number}")
         if (actualDelay <= 0L) {
             pendingPlayModel = null
-            if (player != null) abortCurrentPlayback("first-play")
+            softStopCurrent("first-play")
             playInternal(tvModel, gen)
         } else {
             handler.postDelayed(playLatestRunnable, actualDelay)
@@ -1427,8 +1330,8 @@ class PlayerFragment : Fragment() {
         // IPTV
         try {
             binding.playerView.visibility = View.VISIBLE
-            // WHEN_PLAYING：仅播放中缓冲才转圈，避免起播/短抖一直转
-            binding.playerView.setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
+            // 对齐 GitHub IPTV：ALWAYS；起播慢时可见转圈（比 WHEN_PLAYING 更贴近上游）
+            binding.playerView.setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
             binding.playerView.bringToFront()
             updatePlayerViewLayout()
             binding.playerView.requestFocus()
@@ -1440,46 +1343,12 @@ class PlayerFragment : Fragment() {
                 tvModel.setErrInfo(R.string.play_error.getString())
                 return
             }
-            // 先轻量探测：多档限 1080p；仅 4K 仍播但短超时+小缓冲
             isPreparing = true
-            val gen = generation
-            val model = tvModel
-            val url = videoUrl
-            lifecycleScope.launch(Dispatchers.Main) {
-                if (isStalePlay(gen)) {
-                    isPreparing = false
-                    return@launch
-                }
-                val probe = withContext(Dispatchers.IO) {
-                    // 非 m3u8 也可能是 HLS 入口，统一短探测；失败则按普通源播
-                    if (url.contains("m3u8", true) || url.contains("mpegurl", true)
-                        || url.contains("852851") || url.contains("qd.je")
-                        || url.contains("cdn")
-                    ) {
-                        StreamProbe.probe(url)
-                    } else {
-                        StreamProbe.Result(ok = true, reason = "skip-probe")
-                    }
-                }
-                if (isStalePlay(gen) || !isAdded || _binding == null) {
-                    isPreparing = false
-                    return@launch
-                }
-                // heavy：only-4K 或 URL/标题启发式（超时仍 12s，仅换更大缓冲）
-                val hint4k = looksLike4kHint(url, model.tv.title)
-                val only4k = probe.ok && probe.onlyHighRes
-                val heavy = only4k || hint4k
-                if (heavy) {
-                    Log.w(
-                        TAG,
-                        "heavy stream mode: ${model.tv.title} only4k=$only4k hint=$hint4k ${probe.reason}"
-                    )
-                }
-                startExoPlayback(model, gen, url, heavyOnly4k = heavy)
-            }
+            dbg("playInternal: ${tvModel.tv.title} #${tvModel.tv.number} url=$videoUrl gen=$generation")
+            startExoPlayback(tvModel, generation, videoUrl)
         } catch (t: Throwable) {
             isPreparing = false
-            Log.e(TAG, "playInternal fatal: ${t.message}", t)
+            dbg("playInternal fatal: ${t.message}")
             if (!isStalePlay(generation)) {
                 try {
                     tvModel.setErrInfo(R.string.play_error.getString())
@@ -1487,13 +1356,6 @@ class PlayerFragment : Fragment() {
                 }
             }
         }
-    }
-
-    /** URL/标题启发式：探测失败或 media playlist 时仍可走 heavy 大缓冲 */
-    private fun looksLike4kHint(url: String, title: String): Boolean {
-        val s = "$url $title".lowercase()
-        return s.contains("4k") || s.contains("2160") || s.contains("uhd")
-                || s.contains("3840") || s.contains("超高清")
     }
 
     /**
@@ -1548,25 +1410,15 @@ class PlayerFragment : Fragment() {
         tvModel: TVModel,
         generation: Int,
         videoUrl: String,
-        heavyOnly4k: Boolean = false
+        retried: Boolean = false
     ) {
         if (isStalePlay(generation) || !isAdded || _binding == null) {
             isPreparing = false
             return
         }
         try {
-            // 按是否仅 4K 重建 player（缓冲/超时/轨选择不同）
-            if (player == null || heavyOnly4kMode != heavyOnly4k) {
-                updatePlayer(heavyOnly4k = heavyOnly4k)
-            } else {
-                // 多档源：确保轨上限 1080p
-                trackSelector?.let { ts ->
-                    ts.parameters = ts.buildUponParameters()
-                        .setMaxVideoSize(1920, 1080)
-                        .setMaxVideoBitrate(8_000_000)
-                        .setExceedVideoConstraintsIfNecessary(false)
-                        .build()
-                }
+            if (player == null) {
+                updatePlayer()
             }
             if (isStalePlay(generation) || player == null) {
                 isPreparing = false
@@ -1581,6 +1433,12 @@ class PlayerFragment : Fragment() {
             }
             val mediaSource = tvModel.getMediaSource()
             val p = player!!
+            // GitHub 风格：同实例上换 Media（softStop 已 clear）
+            try {
+                p.stop()
+                p.clearMediaItems()
+            } catch (_: Exception) {
+            }
             if (mediaSource != null) {
                 p.setMediaSource(mediaSource)
             } else {
@@ -1591,22 +1449,12 @@ class PlayerFragment : Fragment() {
                 return
             }
             p.volume = 1f
-            p.playbackParameters = PlaybackParameters(1f)
             p.prepare()
-            // live 窗口默认位置（edge 附近），避免挂在过期分片导致音画漂
-            try {
-                p.seekToDefaultPosition()
-            } catch (_: Exception) {
-            }
             p.playWhenReady = true
             preparedGeneration = generation
             isPreparing = false
             consecutiveHeavySkips = 0
-            needAvResyncAfterBuffer = false
-            Log.i(
-                TAG,
-                "IPTV prepare ok: ${tvModel.tv.title} url=$videoUrl gen=$generation only4k=$heavyOnly4k timeout=${activeLoadTimeoutMs}ms"
-            )
+            dbg("IPTV prepare ok: ${tvModel.tv.title} #${tvModel.tv.number} url=$videoUrl gen=$generation")
             scheduleLoadTimeout(generation)
             handler.removeCallbacks(checkPlaybackRunnable)
             handler.removeCallbacks(stableSourceCheckRunnable)
@@ -1615,9 +1463,12 @@ class PlayerFragment : Fragment() {
         } catch (e: Exception) {
             isPreparing = false
             cancelLoadTimeout()
-            Log.e(TAG, "startExoPlayback failed: ${e.message}", e)
-            if (!isStalePlay(generation)) {
+            dbg("startExoPlayback failed: ${e.message} retried=$retried")
+            if (!isStalePlay(generation) && !retried) {
                 abortCurrentPlayback("prepare-fail")
+                updatePlayer()
+                startExoPlayback(tvModel, generation, videoUrl, retried = true)
+            } else if (!isStalePlay(generation)) {
                 tvModel.setErrInfo(R.string.play_error.getString())
             }
         }
@@ -1807,7 +1658,6 @@ class PlayerFragment : Fragment() {
         handler.removeCallbacks(checkPlaybackRunnable)
         handler.removeCallbacks(stableSourceCheckRunnable)
         handler.removeCallbacks(loadTimeoutRunnable)
-        handler.removeCallbacks(rebufferWatchRunnable)
         handler.removeCallbacks(playLatestRunnable)
         abortCurrentPlayback("onDestroyView")
         _binding = null

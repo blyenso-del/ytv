@@ -94,7 +94,7 @@ android {
 }
 
 fun getVersionName(): String {
-    return "0.1"
+    return "0.2"
 }
 
 fun getVersionCode(): Int {

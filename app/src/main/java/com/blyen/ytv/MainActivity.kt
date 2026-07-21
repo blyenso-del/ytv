@@ -626,9 +626,11 @@ class MainActivity : AppCompatActivity() {
     fun play(position: Int): Boolean {
         return if (position > -1 && position < viewModel.groupModel.getAllList()!!.size()) {
             val prevGroup = viewModel.groupModel.positionValue
-            val tvModel = viewModel.groupModel.getPosition(position)
+            val tvModel = viewModel.groupModel.getPosition(position) ?: return false
 
-            tvModel?.setReady()
+            // PLAYBACK_ONLY 下 ready 观察不再起播，数字选台必须显式 requestPlay
+            viewModel.groupModel.setCurrent(tvModel, notifyChange = false)
+            tvModel.setReady()
             viewModel.groupModel.setPositionPlaying()
             viewModel.groupModel.getCurrentList()?.setPositionPlaying()
 
@@ -636,6 +638,12 @@ class MainActivity : AppCompatActivity() {
             if (currentGroup != prevGroup) {
                 menuFragment.updateList(currentGroup)
             }
+            try {
+                infoFragment.show(tvModel)
+                if (SP.channelNum) channelFragment.show(tvModel)
+            } catch (_: Exception) {
+            }
+            requestPlayChannel(tvModel, settleMs = 100L, force = true)
             true
         } else {
             R.string.channel_not_exist.showToast()
@@ -746,6 +754,14 @@ class MainActivity : AppCompatActivity() {
         }
         if (playerFragment.isAdded && playerFragment.isHidden) {
             showFragment(playerFragment)
+        }
+        // settle 窗口内立刻停旧 4K 流，避免仍拉分片导致切台失灵
+        if (playerFragment.isAdded) {
+            try {
+                playerFragment.abortForZap()
+            } catch (e: Exception) {
+                Log.w(TAG, "abortForZap: ${e.message}")
+            }
         }
         handler.postDelayed(settlePlayRunnable, settleMs)
     }

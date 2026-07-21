@@ -184,7 +184,7 @@ class TVModel(var tv: TV) : ViewModel() {
                 sourceTypeIndex = max(0, min(sourceTypeList.size - 1, sourceTypeIndex))
             }
 
-            // 直播 HLS：稳定 targetOffset + 轻微加速追赶，缓解音画漂移
+            // 直播 HLS：平衡起播稳定与音画；maxOffset 过紧会抖网狂转圈
             val isLiveLike = sourceTypeList.firstOrNull() == SourceType.HLS
                     || sourceTypeList.contains(SourceType.HLS)
             val builder = MediaItem.Builder().setUri(it)
@@ -193,8 +193,9 @@ class TVModel(var tv: TV) : ViewModel() {
                     MediaItem.LiveConfiguration.Builder()
                         .setTargetOffsetMs(3_000)
                         .setMinOffsetMs(1_500)
-                        .setMaxOffsetMs(10_000)
-                        .setMaxPlaybackSpeed(1.04f)
+                        .setMaxOffsetMs(8_000)
+                        .setMinPlaybackSpeed(0.98f)
+                        .setMaxPlaybackSpeed(1.06f)
                         .build()
                 )
             }

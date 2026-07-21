@@ -88,7 +88,8 @@ class InfoFragment : Fragment() {
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
 
-        val channelNum = if (tv.number == -1) tv.id.plus(1) else tv.number
+        // 优先 App 写入的唯一 number；兜底 id+1
+        val channelNum = if (tv.number > 0) tv.number else tv.id.plus(1)
         var size = 150f
         if (channelNum > 99) {
             size = 100f

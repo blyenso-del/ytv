@@ -106,8 +106,8 @@ class PlayerFragment : Fragment() {
      * 起播后长时间进不了 READY/播放 → 必须 cancel 网络 + 异步 release，
      * 否则 HLS 一直拉分片 / 主线程 release 卡死 → 死机。
      */
-    /** 加载超时（4K 与普通统一 12s，靠换台即时 abort 防假死） */
-    private val loadTimeoutMs = if (BuildConfig.PLAYBACK_ONLY) 12_000L else 20_000L
+    /** 加载超时（4K 与普通统一 30s，靠换台即时 abort 防假死） */
+    private val loadTimeoutMs = 30_000L
     private var activeLoadTimeoutMs = loadTimeoutMs
     private var loadWatchGeneration = -1
     private var loadDeadlineElapsed = 0L

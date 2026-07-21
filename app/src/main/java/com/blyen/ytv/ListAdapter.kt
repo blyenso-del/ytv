@@ -40,6 +40,8 @@ class TVListAdapter(
 
     inner class ViewHolder(val binding: ListItemBinding) : RecyclerView.ViewHolder(binding.root) {
         private var cachedBitmap: Bitmap? = null
+        /** 复用 ViewHolder 时必须按台号重绘，否则菜单序号会串台 */
+        private var cachedChannelNum: Int = Int.MIN_VALUE
 
         @SuppressLint("ClickableViewAccessibility")
         fun bind(tvModel: TVModel) {
@@ -143,11 +145,14 @@ class TVListAdapter(
             val tv = tvModel.tv
             val width = 300
             val height = 180
+            // 与数字选台/信息条同一套唯一台号
+            val channelNum = if (tv.number > 0) tv.number else tv.id.plus(1)
 
-            if (cachedBitmap == null) {
+            if (cachedBitmap == null || cachedChannelNum != channelNum) {
+                cachedBitmap?.recycle()
                 cachedBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                cachedChannelNum = channelNum
                 val canvas = Canvas(cachedBitmap!!)
-                val channelNum = if (tv.number == -1) tv.id.plus(1) else tv.number
                 var size = 150f
                 if (channelNum > 99) size = 90f
                 if (channelNum > 999) size = 75f

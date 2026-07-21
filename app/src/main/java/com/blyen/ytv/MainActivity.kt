@@ -623,32 +623,54 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    fun play(position: Int): Boolean {
-        return if (position > -1 && position < viewModel.groupModel.getAllList()!!.size()) {
-            val prevGroup = viewModel.groupModel.positionValue
-            val tvModel = viewModel.groupModel.getPosition(position) ?: return false
-
-            // PLAYBACK_ONLY 下 ready 观察不再起播，数字选台必须显式 requestPlay
-            viewModel.groupModel.setCurrent(tvModel, notifyChange = false)
-            tvModel.setReady()
-            viewModel.groupModel.setPositionPlaying()
-            viewModel.groupModel.getCurrentList()?.setPositionPlaying()
-
-            val currentGroup = viewModel.groupModel.positionValue
-            if (currentGroup != prevGroup) {
-                menuFragment.updateList(currentGroup)
-            }
-            try {
-                infoFragment.show(tvModel)
-                if (SP.channelNum) channelFragment.show(tvModel)
-            } catch (_: Exception) {
-            }
-            requestPlayChannel(tvModel, settleMs = 100L, force = true)
-            true
-        } else {
+    /**
+     * 数字选台：channelNumber 为 App 生成的唯一台号 1..N（与列表角标一致）。
+     */
+    fun playByChannelNumber(channelNumber: Int): Boolean {
+        if (channelNumber < 1) {
             R.string.channel_not_exist.showToast()
-            false
+            return false
         }
+        val tvModel = viewModel.listModel.firstOrNull { it.tv.number == channelNumber }
+            ?: viewModel.listModel.getOrNull(channelNumber - 1)
+        if (tvModel == null) {
+            R.string.channel_not_exist.showToast()
+            return false
+        }
+        return playModel(tvModel)
+    }
+
+    /** 0-based 全列表下标（兼容旧调用） */
+    fun play(position: Int): Boolean {
+        val tvModel = viewModel.listModel.getOrNull(position)
+        if (tvModel == null) {
+            R.string.channel_not_exist.showToast()
+            return false
+        }
+        return playModel(tvModel)
+    }
+
+    private fun playModel(tvModel: com.blyen.ytv.models.TVModel): Boolean {
+        val prevGroup = viewModel.groupModel.positionValue
+        // 切到「全部」组下的该台，保证 current 与 list 一致
+        viewModel.groupModel.setPosition(1)
+        viewModel.groupModel.setCurrent(tvModel, notifyChange = false)
+        tvModel.setReady()
+        viewModel.groupModel.setPositionPlaying()
+        viewModel.groupModel.getCurrentList()?.setPositionPlaying()
+
+        val currentGroup = viewModel.groupModel.positionValue
+        if (currentGroup != prevGroup) {
+            menuFragment.updateList(currentGroup)
+        }
+        try {
+            infoFragment.show(tvModel)
+            if (SP.channelNum) channelFragment.show(tvModel)
+        } catch (_: Exception) {
+        }
+        // PLAYBACK_ONLY 下 ready 观察不再起播，必须显式 requestPlay
+        requestPlayChannel(tvModel, settleMs = 100L, force = true)
+        return true
     }
 
     fun prev() {

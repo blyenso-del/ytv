@@ -65,7 +65,7 @@ class ChannelFragment : Fragment() {
         handler.removeCallbacks(playRunnable)
         if (_binding != null) {
             binding.content.text =
-                if (tv.number == -1) (tv.id.plus(1)).toString() else tv.number.toString()
+                if (tv.number > 0) tv.number.toString() else (tv.id.plus(1)).toString()
         }
         view?.visibility = View.VISIBLE
         channel = 0
@@ -129,11 +129,9 @@ class ChannelFragment : Fragment() {
     }
 
     private val playRunnable = Runnable {
-        var c = channel - 1
-        viewModel.listModel.find { it.tv.number == channel }?.let {
-            c = it.tv.id
-        }
-        if ((activity as MainActivity).play(c)) {
+        // 按 App 生成的唯一 number（1..N）在全列表定位，勿用分组扁平下标（会错台/看似不唯一）
+        val ok = (activity as MainActivity).playByChannelNumber(channel)
+        if (ok) {
             channel = 0
             channelCount = 0
             handler.postDelayed(hideRunnable, delay)

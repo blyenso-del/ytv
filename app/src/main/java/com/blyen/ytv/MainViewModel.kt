@@ -446,6 +446,13 @@ class MainViewModel : ViewModel() {
             }
             val listModelNew = modelMap.values.sortedBy { it.listIndex }.toMutableList()
 
+            // 源未标序号时由 App 生成：最终列表唯一 1..N（id=0..N-1）
+            // 必须在分组前写回，收藏/分组/全部分享同一套台号，避免重复或对不上
+            listModelNew.forEachIndexed { index, tvModel ->
+                tvModel.listIndex = index
+                tvModel.tv = tvModel.tv.copy(id = index, number = index + 1)
+            }
+
             val groupMap = mutableMapOf<String, MutableList<TVModel>>()
             listModelNew.forEach { tvModel ->
                 val group = tvModel.tv.group.ifEmpty { context.getString(R.string.unknown) }
@@ -453,12 +460,14 @@ class MainViewModel : ViewModel() {
             }
 
             groupMap.forEach { (group, tvModels) ->
+                // 组内也按全局台号排序，菜单顺序与台号一致
+                val sorted = tvModels.sortedBy { it.tv.number.takeIf { n -> n > 0 } ?: it.tv.id }
                 val existingGroup = groupModel.tvGroupValue.find { it.getName() == group }
                 if (existingGroup != null) {
-                    existingGroup.setTVListModel(tvModels)
+                    existingGroup.setTVListModel(sorted)
                 } else {
                     val newGroup = TVListModel(group, groupModel.tvGroupValue.size)
-                    newGroup.setTVListModel(tvModels)
+                    newGroup.setTVListModel(sorted)
                     groupModel.addTVListModel(newGroup)
                 }
             }

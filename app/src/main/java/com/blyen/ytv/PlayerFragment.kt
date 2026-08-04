@@ -565,11 +565,9 @@ class PlayerFragment : Fragment() {
         val renderersFactory = DefaultRenderersFactory(ctx)
         val playerMediaCodecSelector = PlayerMediaCodecSelector()
         renderersFactory.setMediaCodecSelector(playerMediaCodecSelector)
-        // PLAYBACK_ONLY：强制硬解（优于 GitHub 可软解，避免有声无画）
-        val preferSoft = !BuildConfig.PLAYBACK_ONLY && SP.softDecode && isTouchScreenDevice()
+        // 平台硬解优先；ffmpeg 扩展仅作音频兜底（AC-3/MP2 等手机无硬解格式，避免有画无声），视频仍走平台硬解
         renderersFactory.setExtensionRendererMode(
-            if (preferSoft) DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
-            else DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF
+            DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
         )
         renderersFactory.setEnableDecoderFallback(true)
 

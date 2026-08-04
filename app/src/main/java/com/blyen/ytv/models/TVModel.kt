@@ -280,6 +280,19 @@ class TVModel(var tv: TV) : ViewModel() {
         return isLastVideo()
     }
 
+    fun prevVideo(): Boolean {
+        if (tv.uris.isEmpty()) {
+            return false
+        }
+
+        _videoIndex.value = (videoIndexValue - 1 + tv.uris.size) % tv.uris.size
+        sourceTypeList = listOf(
+            SourceType.UNKNOWN,
+        )
+        Log.d(TAG, "prevVideo: title=${tv.title}, new videoIndex=$videoIndexValue, url=${tv.uris.getOrNull(videoIndexValue)}")
+        return videoIndexValue == 0
+    }
+
     fun update(t: TV) {
         tv = t
     }

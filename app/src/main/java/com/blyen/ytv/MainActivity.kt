@@ -894,6 +894,49 @@ class MainActivity : AppCompatActivity() {
         Log.d(TAG, "sourceUp: switched to source ${tvModel.videoIndexValue + 1}, uris: ${tvModel.tv.uris.size}")
     }
 
+    fun sourceDown() {
+        val currentTime = System.currentTimeMillis()
+        if (currentTime - lastSourceUpTime < sourceUpDebounce) {
+            Log.d(TAG, "Debounced sourceDown for ${viewModel.groupModel.getCurrent()?.tv?.title}")
+            return
+        }
+        lastSourceUpTime = currentTime
+
+        var tvModel = viewModel.groupModel.getCurrent()
+        if (tvModel == null) {
+            Log.w(TAG, "sourceDown: tvModel is null, attempting to fix groupModel")
+            if (viewModel.listModel.isNotEmpty()) {
+                tvModel = viewModel.listModel[SP.channel.coerceIn(0, viewModel.listModel.size - 1)]
+                viewModel.groupModel.setCurrent(tvModel)
+            } else {
+                Log.e(TAG, "sourceDown: listModel is empty")
+                R.string.no_current_tv_model.showToast()
+                return
+            }
+        }
+
+        val urls = tvModel.tv.uris.filter { it.isNotBlank() }
+        if (urls.isEmpty()) {
+            Log.w(TAG, "sourceDown: no available sources for ${tvModel.tv.title}")
+            R.string.no_available_sources.showToast()
+            return
+        }
+        if (urls.size <= 1) {
+            // 单线路：重试当前 URL（与 sourceUp 对称）
+            Log.i(TAG, "sourceDown: single source retry for ${tvModel.tv.title}")
+            playerFragment.play(tvModel)
+            showSourceInfo(1, 1)
+            return
+        }
+
+        // 上一源
+        tvModel.prevVideo()
+        tvModel.confirmVideoIndex()
+        playerFragment.play(tvModel)
+        showSourceInfo(tvModel.videoIndexValue + 1, urls.size)
+        Log.d(TAG, "sourceDown: switched to source ${tvModel.videoIndexValue + 1}, uris: ${tvModel.tv.uris.size}")
+    }
+
     private fun showSourceInfo(sourceIndex: Int, totalSources: Int) {
         val toast = Toast.makeText(
             this,
@@ -1108,10 +1151,11 @@ class MainActivity : AppCompatActivity() {
             }
 
             KEYCODE_DPAD_LEFT -> {
-                if (false) {
+                if (menuFragment.isAdded && !menuFragment.isHidden) {
                     return false
                 }
-                // 节目单已移除
+                // 左键切上一源（多源频道；单源重试当前）
+                sourceDown()
                 return true
             }
 

@@ -52,7 +52,20 @@ MainActivity
 
 # macOS / Linux
 ./gradlew :app:assembleDebug
+
+# Release APK
+.\gradlew.bat :app:assembleRelease
+# 输出: app/build/outputs/apk/release/ytv_v<version>.apk
 ```
+
+
+脚本会：
+
+1. 更新 `app/build.gradle.kts` 的 `versionName`（`versionCode = major*100 + minor*10 + patch`）
+2. 同步本 README 中的版本号与下载/安装链接
+3. `assembleRelease` → `ytv_vX.Y.apk`
+4. commit + annotated tag `vX.Y` → `git push` 分支与 tag
+5. `gh release create` 上传 APK（token：`GH_TOKEN` / `GITHUB_TOKEN` / git credential）
 
 ## 下载
 
@@ -92,4 +105,4 @@ adb shell am start -n com.blyen.ytv/.MainActivity
 
 ## License
 
-[MIT](LICENSE) © 2026 blyen
+[MIT](LICENSE) © 2026

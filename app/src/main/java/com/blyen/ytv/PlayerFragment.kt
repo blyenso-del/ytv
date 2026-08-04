@@ -107,7 +107,7 @@ class PlayerFragment : Fragment() {
      * 加载超时底线（GitHub 无此项；保留防假死，不按 4K 双模式）。
      * 正常流畅靠默认缓冲 + 换台 abort，不靠贴边/狂 seek。
      */
-    private val loadTimeoutMs = 120_000L
+    private val loadTimeoutMs = 1_800_000L
     private var activeLoadTimeoutMs = loadTimeoutMs
     private var loadWatchGeneration = -1
     private var loadDeadlineElapsed = 0L

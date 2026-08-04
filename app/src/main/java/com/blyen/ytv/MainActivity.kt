@@ -93,6 +93,8 @@ class MainActivity : AppCompatActivity() {
 
     private val handleEnterRunnable = Runnable {
         if (menuPressCount == 1) { // 仅单次按键触发 menuFragment
+            // 错误页 add 顺序在菜单之上，先隐藏避免覆盖菜单
+            hideFragment(errorFragment)
             showFragment(menuFragment)
             menuActive()
         }
@@ -102,6 +104,8 @@ class MainActivity : AppCompatActivity() {
     /** 触摸：双击打开菜单（设置页已移除） */
     private val handleTapRunnable = Runnable {
         if (menuPressCount >= 2) {
+            // 错误页 add 顺序在菜单之上，先隐藏避免覆盖菜单
+            hideFragment(errorFragment)
             showFragment(menuFragment)
             menuActive()
         }
@@ -356,7 +360,10 @@ class MainActivity : AppCompatActivity() {
         var lastEmission = 0L
         observeForever { value ->
             val now = System.currentTimeMillis()
-            if (now - lastEmission >= durationMs) {
+            // 清空（""）事件不节流，立即发射：否则错误页恢复播放时 setErrInfo("")
+            // 被节流丢弃，错误页卡死不消失（表现为"换台无反应"）
+            val isEmpty = value is String && (value as String).isEmpty()
+            if (isEmpty || now - lastEmission >= durationMs) {
                 result.value = value
                 lastEmission = now
             }
@@ -1044,6 +1051,8 @@ class MainActivity : AppCompatActivity() {
                 if (menuFragment.isAdded && !menuFragment.isHidden) {
                     return false
                 }
+                // 错误页 add 顺序在菜单之上，先隐藏避免覆盖菜单
+                hideFragment(errorFragment)
                 showFragment(menuFragment)
                 menuActive()
                 return true

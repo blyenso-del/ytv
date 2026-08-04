@@ -35,6 +35,13 @@ class ErrorFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        // 错误页不消费触摸（黑底透明），转发给 MainActivity 手势检测：
+        // 否则错误页显示时（PlayerFragment 被 hide）触摸事件无法到达 gestureDetector，
+        // 双击打开菜单会失效
+        view.setOnTouchListener { _, event ->
+            (activity as? MainActivity)?.gestureDetector?.onTouchEvent(event) ?: false
+            true
+        }
     }
 
     fun setMsg(msg: String) {

@@ -530,9 +530,11 @@ class PlayerFragment : Fragment() {
         controls?.visibility = vis
         listOf(btnSource, btnUp, btnDown).forEach { b ->
             b?.visibility = vis
-            b?.isFocusable = shouldShow
+            // 按钮仅触摸点击，不可聚焦：避免错误页/任意时刻焦点落在按钮上，
+            // DPAD 被按钮焦点导航消费导致换台按键到不了 Activity（401 后无法切台）
+            b?.isFocusable = false
             b?.isEnabled = shouldShow
-            b?.isFocusableInTouchMode = shouldShow
+            b?.isFocusableInTouchMode = false
         }
         isSourceButtonVisible = shouldShow
         Log.d(TAG, "setSourceButtonVisibility: shouldShow=$shouldShow")

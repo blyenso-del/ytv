@@ -27,7 +27,7 @@
 | 播放 | AndroidX Media3 ExoPlayer 1.5.x |
 | 网络 | OkHttp |
 | 构建 | Gradle (Kotlin DSL) |
-| 版本 | 0.3.1（versionCode 31） |
+| 版本 | 0.3.2（versionCode 32） |
 
 ## 架构概览
 
@@ -71,14 +71,14 @@ MainActivity
 
 Release 预编译包：
 
-- **[ytv_v0.3.1.apk](https://github.com/blyenso-del/ytv/releases/download/v0.3.1/ytv_v0.3.1.apk)**
-- 发布页：https://github.com/blyenso-del/ytv/releases/tag/v0.3.1
+- **[ytv_v0.3.2.apk](https://github.com/blyenso-del/ytv/releases/download/v0.3.2/ytv_v0.3.2.apk)**
+- 发布页：https://github.com/blyenso-del/ytv/releases/tag/v0.3.2
 
 ## 安装
 
 ```bash
 adb uninstall com.blyen.ytv   # 签名不一致时需先卸载
-adb push ytv_v0.3.1.apk /data/local/tmp/ytv_release.apk
+adb push ytv_v0.3.2.apk /data/local/tmp/ytv_release.apk
 adb shell pm install -r -t /data/local/tmp/ytv_release.apk
 adb shell am start -n com.blyen.ytv/.MainActivity
 ```

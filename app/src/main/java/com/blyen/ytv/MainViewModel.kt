@@ -2,12 +2,14 @@ package com.blyen.ytv
 
 
 import android.content.Context
+import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.blyen.ytv.Utils.getDateFormat
+import com.blyen.ytv.data.Global
 import com.blyen.ytv.data.Global.gson
 import com.blyen.ytv.data.Global.typeTvList
 import com.blyen.ytv.data.SourceType
@@ -221,6 +223,121 @@ class MainViewModel : ViewModel() {
         }
     }
 
+    /**
+     * 解析 webview:// 网页直播源（tv.cctv.com / yangshipin.cn 等）。
+     * 只解析为 TV 列表（TVModel 构造必须在主线程，由 str2Channels 的 applyModels 完成）。
+     */
+    private fun parseWebviewLines(webviewLines: List<String>): List<TV> {
+        if (webviewLines.isEmpty()) return emptyList()
+
+        val blacklistMap: Map<String, List<String>> by lazy {
+            try {
+                val jsonText = context.assets.open("webview_loading_blacklist.json").bufferedReader().use { it.readText() }
+                val type = object : com.google.gson.reflect.TypeToken<Map<String, List<String>>>() {}.type
+                @Suppress("UNCHECKED_CAST")
+                (gson.fromJson<Any>(jsonText, type) as? Map<String, List<String>>) ?: emptyMap()
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to read webview_loading_blacklist.json: ${e.message}")
+                emptyMap()
+            }
+        }
+
+        // 逐对解析 #EXTINF + webview:// 行
+        val webviewTVs = mutableListOf<TV>()
+        var currentTV: TV? = null
+        for (line in webviewLines) {
+            val trimmedLine = line.trim()
+            if (trimmedLine.isEmpty()) continue
+
+            if (trimmedLine.startsWith("#EXTINF")) {
+                currentTV = TV()
+                val info = trimmedLine.split(",", limit = 2)
+                if (info.size >= 2) {
+                    currentTV = currentTV.copy(title = info.last().trim())
+                }
+                val extinf = info.firstOrNull() ?: ""
+                val nameStart = extinf.indexOf("tvg-name=\"") + 10
+                val nameEnd = extinf.indexOf("\"", nameStart)
+                currentTV = currentTV.copy(
+                    name = if (nameStart > 9 && nameEnd > nameStart) {
+                        extinf.substring(nameStart, nameEnd)
+                    } else {
+                        currentTV.title
+                    }
+                )
+                val logoStart = extinf.indexOf("tvg-logo=\"") + 10
+                val logoEnd = extinf.indexOf("\"", logoStart)
+                currentTV = currentTV.copy(
+                    logo = if (logoStart > 9 && logoEnd > logoStart) {
+                        extinf.substring(logoStart, logoEnd)
+                    } else {
+                        ""
+                    }
+                )
+                val groupStart = extinf.indexOf("group-title=\"") + 13
+                val groupEnd = extinf.indexOf("\"", groupStart)
+                currentTV = currentTV.copy(
+                    group = if (groupStart > 12 && groupEnd > groupStart) {
+                        extinf.substring(groupStart, groupEnd)
+                    } else {
+                        ""
+                    }
+                )
+            } else if (trimmedLine.startsWith("webview://") && currentTV != null) {
+                val url = trimmedLine.removePrefix("webview://")
+                val domain = Uri.parse(url).host ?: ""
+                val blockList = Global.blockMap[currentTV.group]
+                    ?: blacklistMap.entries.find { it.key == domain || domain.endsWith(".${it.key}") }?.value
+                    ?: listOf("ad.js", "banner.css")
+                currentTV = currentTV.copy(
+                    uris = listOf(url),
+                    block = blockList,
+                    id = url.hashCode(),
+                    started = "document.querySelector('.floatNav').style.display = 'none'",
+                    script = "",
+                    selector = "",
+                    finished = "",
+                    playerType = PlayerType.WEBVIEW
+                )
+                webviewTVs.add(currentTV)
+                currentTV = null
+            }
+        }
+
+        // 按 group+name 去重合并多线路
+        val webviewMap = mutableMapOf<String, MutableList<TV>>()
+        for (tv in webviewTVs) {
+            val key = (tv.group + tv.name).ifEmpty { tv.title }
+            webviewMap.computeIfAbsent(key) { mutableListOf() }.add(tv)
+        }
+
+        return webviewMap.values.mapIndexed { index, tvs ->
+            val uris = tvs.flatMap { it.uris }.distinct()
+            val first = tvs[0]
+            TV(
+                id = first.id,
+                name = first.name,
+                title = first.title,
+                description = null,
+                logo = first.logo,
+                image = null,
+                uris = uris,
+                videoIndex = 0,
+                headers = emptyMap(),
+                group = first.group,
+                sourceType = SourceType.UNKNOWN,
+                number = -1,
+                child = emptyList(),
+                playerType = PlayerType.WEBVIEW,
+                block = first.block,
+                script = first.script,
+                selector = first.selector,
+                started = first.started,
+                finished = first.finished
+            )
+        }
+    }
+
     private fun str2Channels(str: String): Boolean {
         if (initialized && str == cacheChannels) {
             Log.w(TAG, "same channels, skipping parsing")
@@ -243,9 +360,10 @@ class MainViewModel : ViewModel() {
         val currentTvTitle = groupModel.getCurrent()?.tv?.title
         Log.d(TAG, "str2Channels: Saving currentTvTitle=$currentTvTitle")
 
-        // 只收 IPTV 行；webview:// 整段丢弃
+        // webview:// 行单独收集；IPTV 行进 iptvLines（webview 源由 WebFragment 播放）
         val lines = string.split("\n", "\r\n", "\r").filter { it.isNotBlank() }
         val iptvLines = mutableListOf<String>()
+        val webviewLines = mutableListOf<String>()
         var lastWasExtinf = false
         var webviewSkipped = 0
 
@@ -261,9 +379,11 @@ class MainViewModel : ViewModel() {
                 iptvLines.add(trimmedLine)
                 lastWasExtinf = true
             } else if (trimmedLine.startsWith("webview://")) {
+                // 连同前一条 #EXTINF 一起转到 webview 段
                 if (lastWasExtinf && iptvLines.isNotEmpty() && iptvLines.last().startsWith("#EXTINF")) {
-                    iptvLines.removeAt(iptvLines.lastIndex)
+                    webviewLines.add(iptvLines.removeAt(iptvLines.lastIndex))
                 }
+                webviewLines.add(trimmedLine)
                 webviewSkipped++
                 lastWasExtinf = false
             } else if (trimmedLine.startsWith("#EXTVLCOPT")) {
@@ -275,9 +395,11 @@ class MainViewModel : ViewModel() {
             }
         }
         if (webviewSkipped > 0) {
-            Log.i(TAG, "str2Channels: skipped $webviewSkipped webview:// entries")
+            Log.i(TAG, "str2Channels: collected $webviewSkipped webview:// entries")
         }
-        val webviewModels = emptyList<TVModel>()
+
+        // 解析 webview 源：依赖 WebFragment 的 scriptMap + 注入脚本自动播放（只生成 TV，TVModel 在主线程构造）
+        val webviewList: List<TV> = parseWebviewLines(webviewLines)
 
         // 处理 IPTV 直播源
         val iptvList: List<TV> = if (iptvLines.isNotEmpty()) {
@@ -411,7 +533,7 @@ class MainViewModel : ViewModel() {
             emptyList()
         }
 
-        if (iptvList.isEmpty() && webviewModels.isEmpty()) {
+        if (iptvList.isEmpty() && webviewList.isEmpty()) {
             Log.w(TAG, "str2Channels: Parsed TV list is empty")
             return false
         }
@@ -431,6 +553,15 @@ class MainViewModel : ViewModel() {
                     setLike(SP.getLike(index))
                     setGroupIndex(2)
                     listIndex = index
+                }
+            }
+
+            // 生成 WebView TVModel（主线程构造：TVModel init 里 setValue LiveData 必须在主线程）
+            val webviewModels = webviewList.mapIndexed { index, tv ->
+                TVModel(tv).apply {
+                    setLike(SP.getLike(tv.id))
+                    setGroupIndex(2)
+                    listIndex = index + iptvList.size
                 }
             }
 

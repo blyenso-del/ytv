@@ -307,6 +307,10 @@ class PlayerFragment : Fragment() {
         Log.i(TAG, "loadTimeout scheduled ${ms}ms gen=$generation")
     }
 
+    private fun currentWebFragment(): WebFragment? {
+        return childFragmentManager.findFragmentById(R.id.web_view) as? WebFragment
+    }
+
     private fun cancelLoadTimeout() {
         handler.removeCallbacks(loadTimeoutRunnable)
         loadWatchGeneration = -1
@@ -323,8 +327,38 @@ class PlayerFragment : Fragment() {
             cancelLoadTimeout()
             return
         }
-        val p = player
         val tv = tvModel
+        // WEBVIEW：player 为 null，跳过 ExoPlayer 状态检查；提示 + 换下一网页源或重载
+        if (tv?.tv?.playerType == PlayerType.WEBVIEW) {
+            consecutiveLoadTimeouts++
+            Log.w(TAG, "WEBVIEW LOAD TIMEOUT HARD KILL #${consecutiveLoadTimeouts}: ${tv.tv.title} url=${tv.getVideoUrl()}")
+            try {
+                tv.setErrInfo(R.string.play_error.getString())
+                if (isAdded && context != null) {
+                    Toast.makeText(requireContext(), "加载超时，请换台", Toast.LENGTH_SHORT).show()
+                }
+            } catch (_: Exception) {
+            }
+            if (consecutiveLoadTimeouts < maxConsecutiveLoadTimeouts && !tv.isLastVideo()) {
+                handler.postDelayed({
+                    if (pendingPlayModel != null) return@postDelayed
+                    try {
+                        tv.nextVideo()
+                        tv.confirmVideoIndex()
+                        play(tv, force = true)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "webview timeout next line: ${e.message}")
+                    }
+                }, 600)
+            } else {
+                consecutiveLoadTimeouts = 0
+                currentWebFragment()?.let {
+                    if (!it.isPlaying) it.reloadWebView()
+                }
+            }
+            return
+        }
+        val p = player
         if (p != null && p.isPlaying) {
             consecutiveLoadTimeouts = 0
             cancelLoadTimeout()
@@ -417,7 +451,13 @@ class PlayerFragment : Fragment() {
             }
             binding.playerView.requestLayout()
             binding.playerView.requestFocus()
-            if (player == null && tvModel != null) {
+            if (tvModel?.tv?.playerType == PlayerType.WEBVIEW) {
+                // WEBVIEW：PiP 窗口继续由 WebView 渲染，不重建 ExoPlayer（避免闪断）
+                binding.webView.visibility = View.VISIBLE
+                binding.playerView.visibility = View.GONE
+                binding.webView.bringToFront()
+                Log.d(TAG, "PiP with WEBVIEW, keeping WebView as-is")
+            } else if (player == null && tvModel != null) {
                 updatePlayer()
                 playInternal(tvModel!!, playGeneration)
                 Log.d(TAG, "Player was null, reinitialized for ${tvModel!!.tv.title}")
@@ -1063,6 +1103,19 @@ class PlayerFragment : Fragment() {
             return
         }
         val app = YTVApplication.getInstance()
+        if (tvModel?.tv?.playerType == PlayerType.WEBVIEW) {
+            // WEBVIEW：webView 恒铺满，切到前台
+            binding.webView.visibility = View.VISIBLE
+            binding.playerView.visibility = View.GONE
+            binding.webView.bringToFront()
+            currentWebFragment()?.updateWebViewLayout()
+            binding.webView.requestFocus()
+            binding.webView.isFocusable = true
+            binding.webView.isFocusableInTouchMode = true
+            binding.root.requestLayout()
+            binding.root.requestFocus()
+            return
+        }
         updatePlayerViewLayout()
         binding.playerView.visibility = View.VISIBLE
         binding.playerView.requestFocus()
@@ -1090,14 +1143,31 @@ class PlayerFragment : Fragment() {
                 handler.postDelayed(this, checkPlaybackInterval)
                 return
             }
-            val isPlaying = player?.let {
-                (it.isPlaying == true && it.playbackState == Player.STATE_READY && it.playWhenReady == true).also { playing ->
-                    if (!playing && lastStopTime == 0L) {
-                        lastStopTime = System.currentTimeMillis()
-                        Log.d(TAG, "IPTV playback stopped, marking lastStopTime=$lastStopTime")
-                    }
+            val isPlaying = when (tvModel!!.tv.playerType) {
+                PlayerType.WEBVIEW -> {
+                    childFragmentManager.findFragmentById(R.id.web_view)?.let { fragment ->
+                        (fragment as? WebFragment)?.isPlaying?.also { playing ->
+                            if (!playing && lastStopTime == 0L) {
+                                lastStopTime = System.currentTimeMillis()
+                                Log.d(TAG, "WEBVIEW playback stopped, marking lastStopTime=$lastStopTime")
+                            }
+                        } ?: false
+                    } ?: false
                 }
-            } ?: false
+
+                PlayerType.IPTV -> {
+                    player?.let {
+                        (it.isPlaying == true && it.playbackState == Player.STATE_READY && it.playWhenReady == true).also { playing ->
+                            if (!playing && lastStopTime == 0L) {
+                                lastStopTime = System.currentTimeMillis()
+                                Log.d(TAG, "IPTV playback stopped, marking lastStopTime=$lastStopTime")
+                            }
+                        }
+                    } ?: false
+                }
+
+                else -> false
+            }
             val stopDuration = if (lastStopTime > 0) currentTime - lastStopTime else 0L
             val cooldownRemaining = if (currentTime - lastSwitchTime < retryCooldown) {
                 retryCooldown - (currentTime - lastSwitchTime)
@@ -1305,30 +1375,86 @@ class PlayerFragment : Fragment() {
         lastSwitchSourceTime = System.currentTimeMillis()
         lastPlayInternalAt = lastSwitchSourceTime
         this.tvModel = tvModel
-        if (BuildConfig.PLAYBACK_ONLY) {
-            if (tvModel.tv.playerType != PlayerType.IPTV) {
-                tvModel.tv = tvModel.tv.copy(playerType = PlayerType.IPTV)
-            }
-        } else {
+        // PLAYBACK_ONLY：不读 stable（防旧数据污染 playerType）；否则仅恢复 IPTV 的线路，
+        // webview 源不恢复（旧 stable 把 IPTV 改成 WEBVIEW → 黑屏）
+        if (!BuildConfig.PLAYBACK_ONLY) {
             val stableSource = SP.getStableSources().firstOrNull { it.id == tvModel.tv.id }
             if (stableSource != null) {
-                tvModel.tv = tvModel.tv.copy(
-                    playerType = stableSource.playerType,
-                    videoIndex = stableSource.videoIndex
-                )
-                tvModel.setVideoIndex(stableSource.videoIndex)
+                if (tvModel.tv.playerType == PlayerType.IPTV && stableSource.playerType == PlayerType.IPTV) {
+                    tvModel.tv = tvModel.tv.copy(videoIndex = stableSource.videoIndex)
+                    tvModel.setVideoIndex(stableSource.videoIndex)
+                } else if (stableSource.playerType == PlayerType.WEBVIEW) {
+                    tvModel.tv = tvModel.tv.copy(playerType = PlayerType.WEBVIEW)
+                }
             }
         }
         Log.i(TAG, "playInternal: ${tvModel.tv.title} url=${tvModel.getVideoUrl()} gen=$generation")
 
-        // WebView 模块已移除：强制按 IPTV 处理
         if (tvModel.tv.playerType == PlayerType.WEBVIEW) {
-            Log.w(TAG, "WEBVIEW channel coerced to IPTV: ${tvModel.tv.title}")
-            tvModel.tv = tvModel.tv.copy(playerType = PlayerType.IPTV)
+            // WEBVIEW 分支：先 release IPTV player，再挂 WebFragment 到 web_view 容器
+            abortCurrentPlayback("webview")
+            binding.playerView.visibility = View.GONE
+            binding.playerView.setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
+            binding.webView.visibility = View.VISIBLE
+            binding.webView.requestLayout()
+            binding.webView.bringToFront()
+            try {
+                val webFragment = WebFragment()
+                if (isAdded && !isDetached && !childFragmentManager.isStateSaved) {
+                    childFragmentManager.beginTransaction()
+                        .replace(R.id.web_view, webFragment)
+                        .commitNow()
+                } else {
+                    tvModel.setErrInfo(R.string.play_error.getString())
+                    return
+                }
+                webFragment.setCallback(object : WebFragmentCallback {
+                    override fun onPlaybackStarted() {
+                        playbackStartTime = System.currentTimeMillis()
+                        bufferingCount = 0
+                        tvModel.retryTimes = 0
+                        lastStopTime = 0L
+                    }
+
+                    override fun onPlaybackStopped() {
+                        isStable = false
+                        playbackStartTime = 0L
+                        lastStopTime = System.currentTimeMillis()
+                    }
+
+                    override fun onPlaybackError(error: String) {
+                        isStable = false
+                        playbackStartTime = 0L
+                        lastStopTime = System.currentTimeMillis()
+                        tvModel.setErrInfo(error)
+                    }
+                })
+                webFragment.viewLifecycleOwnerLiveData.observe(viewLifecycleOwner) { owner ->
+                    if (owner != null && !isStalePlay(generation)) {
+                        webFragment.play(tvModel)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to load WebFragment: ${e.message}")
+                tvModel.setErrInfo(R.string.play_error.getString())
+            }
+            binding.webView.requestFocus()
+            return
         }
 
         // IPTV
         try {
+            // 切回 IPTV：移除残留的 WebFragment（触发 WebView destroy）
+            if (isAdded && !isDetached && !childFragmentManager.isStateSaved) {
+                childFragmentManager.findFragmentById(R.id.web_view)?.let { webFragment ->
+                    if (webFragment is WebFragment) {
+                        try {
+                            childFragmentManager.beginTransaction().remove(webFragment).commitNow()
+                        } catch (_: IllegalStateException) {
+                        }
+                    }
+                }
+            }
             binding.playerView.visibility = View.VISIBLE
             // 对齐 GitHub IPTV：ALWAYS；起播慢时可见转圈（比 WHEN_PLAYING 更贴近上游）
             binding.playerView.setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
@@ -1606,6 +1732,11 @@ class PlayerFragment : Fragment() {
 
     override fun onPause() {
         super.onPause()
+        // WEBVIEW：页面音频不受 ExoPlayer 控制，跳过 pause 避免误停网页播放
+        if (tvModel?.tv?.playerType == PlayerType.WEBVIEW) {
+            Log.d(TAG, "Skipping pause for WEBVIEW")
+            return
+        }
         if (!SP.enableScreenOffAudio && player != null) {
             player?.pause()
             Log.d(TAG, "Paused player due to SP.enableScreenOffAudio=false")

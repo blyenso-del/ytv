@@ -659,8 +659,8 @@ class MainViewModel : ViewModel() {
     companion object {
         private const val TAG = "MainViewModel"
         const val CACHE_FILE_NAME = "codechannels.txt"
-        /** GitHub Pages 自定义域：sub.blyen.ccwu.cc */
-        const val REMOTE_CHANNELS_URL = "https://sub.blyen.ccwu.cc/channels.txt"
+        /** GitHub Pages 自定义域：ytv1.ccwu.cc */
+        const val REMOTE_CHANNELS_URL = "https://ytv1.ccwu.cc/channels.txt"
         private const val REMOTE_CACHE_FILE = "channels_remote_cache.txt"
     }
 }

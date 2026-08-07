@@ -10,7 +10,7 @@
 ## 功能
 
 - **远程频道列表**：默认拉取  
-  `https://sub.blyen.ccwu.cc/channels.txt`  
+  `https://ytv1.ccwu.cc/channels.txt`  
   失败时使用上次成功写入的本地缓存
 - **Media3 ExoPlayer** 播放（HLS / HTTP 等常见直播流）
 - **硬解优先**，降低「有声无画」概率
@@ -87,7 +87,7 @@ adb shell am start -n com.blyen.ytv/.MainActivity
 
 | 来源 | 说明 |
 |------|------|
-| 远程 | `https://sub.blyen.ccwu.cc/channels.txt`
+| 远程 | `https://ytv1.ccwu.cc/channels.txt`
 | 缓存 | 应用私有目录 `channels_remote_cache.txt` |
 
 更新频道：修改托管仓库中的 `channels.txt` 并推送后，重新打开 App 即可（有短超时；失败则用缓存）。

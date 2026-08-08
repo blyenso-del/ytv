@@ -9,9 +9,6 @@
 ---
 ## 功能
 
-- **远程频道列表**：默认拉取  
-  `https://ytv1.ccwu.cc/channels.txt`  
-  失败时使用上次成功写入的本地缓存
 - **Media3 ExoPlayer** 播放（HLS / HTTP 等常见直播流）
 - **硬解优先**，降低「有声无画」概率
 - **频道菜单**：分组 / 列表选台
@@ -27,7 +24,7 @@
 | 播放 | AndroidX Media3 ExoPlayer 1.5.x |
 | 网络 | OkHttp |
 | 构建 | Gradle (Kotlin DSL) |
-| 版本 | 0.3.3（versionCode 33） |
+| 版本 | 0.3.4（versionCode 34） |
 
 ## 架构概览
 
@@ -82,15 +79,6 @@ adb push ytv_v0.3.3.apk /data/local/tmp/ytv_release.apk
 adb shell pm install -r -t /data/local/tmp/ytv_release.apk
 adb shell am start -n com.blyen.ytv/.MainActivity
 ```
-
-## 频道列表
-
-| 来源 | 说明 |
-|------|------|
-| 远程 | `https://ytv1.ccwu.cc/channels.txt`
-| 缓存 | 应用私有目录 `channels_remote_cache.txt` |
-
-更新频道：修改托管仓库中的 `channels.txt` 并推送后，重新打开 App 即可（有短超时；失败则用缓存）。
 
 ## 常用操作
 

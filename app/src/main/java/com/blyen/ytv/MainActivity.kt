@@ -81,8 +81,7 @@ class MainActivity : AppCompatActivity() {
     private val MENU_TAP_INTERVAL = 500L
     private var lastSwitchTime = 0L
     private val DEBOUNCE_INTERVAL = 2000L
-    private var lastBackPressTime = 0L
-    private val BACK_PRESS_INTERVAL = 2000L
+    private var backPressedOnce = false
 
     private val handleRightRunnable = Runnable {
         if (menuPressCount == 1) { // 仅单次按右键触发 sourceUp
@@ -1074,13 +1073,14 @@ class MainActivity : AppCompatActivity() {
                     sourceSelectFragment.hideSelf()
                     return true
                 }
-                val currentTime = System.currentTimeMillis()
-                if (currentTime - lastBackPressTime < BACK_PRESS_INTERVAL) {
+                if (backPressedOnce) {
                     finishAffinity()
+                    backPressedOnce = false
                     return true
                 }
-                lastBackPressTime = currentTime
+                backPressedOnce = true
                 R.string.press_back_exit.showToast()
+                handler.postDelayed({ backPressedOnce = false }, 2000L)
                 return true
             }
             KEYCODE_0, KEYCODE_1, KEYCODE_2, KEYCODE_3, KEYCODE_4,
@@ -1192,16 +1192,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     // 保留原有 onKeyDown，仅处理返回键
-    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        if (isInputDisabled) {
-            Log.d(TAG, "Key input blocked until listModel initialized, keyCode=$keyCode")
-            return true
+    override fun onBackPressed() {
+        if (backPressedOnce) {
+            finishAffinity()
+            backPressedOnce = false
+            return
         }
-        if (onKey(keyCode)) {
-            return true
-        }
-        // 不调用 super.onKeyDown，阻止系统默认退出
-        return false
+        backPressedOnce = true
+        R.string.press_back_exit.showToast()
+        handler.postDelayed({ backPressedOnce = false }, 2000L)
     }
 
     // 新增：触摸屏检测方法，与 PlayerFragment 一致
@@ -1247,6 +1246,7 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         isSafeToPerformFragmentTransactions = true
         showTimeFragment()
+        backPressedOnce = false
     }
 
     // 在 onPause 中暂停播放并释放资源

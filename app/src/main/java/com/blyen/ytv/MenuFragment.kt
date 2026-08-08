@@ -32,6 +32,8 @@ class MenuFragment : Fragment(), GroupAdapter.ItemListener, TVListAdapter.ItemLi
     private lateinit var viewModel: MainViewModel
     /** 当前右侧列表实际展示的分组（焦点可能已变，group position 可能还没跟上） */
     private var displayedListModel: TVListModel? = null
+    /** 返回键回调：菜单可见时消费（隐藏菜单），不可见时放行给 Activity 的双击退出 */
+    private var backCallback: OnBackPressedCallback? = null
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -121,6 +123,8 @@ class MenuFragment : Fragment(), GroupAdapter.ItemListener, TVListAdapter.ItemLi
 
     override fun onHiddenChanged(hidden: Boolean) {
         super.onHiddenChanged(hidden)
+        // 同步返回键回调：仅菜单可见时消费返回键
+        backCallback?.isEnabled = !hidden
         if (!hidden) {
             onVisible()
             view?.post { requestFocus() }
@@ -371,15 +375,16 @@ class MenuFragment : Fragment(), GroupAdapter.ItemListener, TVListAdapter.ItemLi
 
     override fun onAttach(context: Context) {
         super.onAttach(context)
-        // 添加 OnBackPressedCallback，处理返回键（可选）
-        requireActivity().onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+        // 返回键：菜单可见时才消费（隐藏菜单）；菜单隐藏时放行给 Activity 的双击退出。
+        // 初始 enabled=false，因为菜单默认 hide，显示时由 onHiddenChanged 置为 true。
+        backCallback = object : OnBackPressedCallback(false) {
             override fun handleOnBackPressed() {
-                // 可选：自定义返回键逻辑，例如隐藏 MenuFragment
                 if (isVisible && isAdded) {
                     hideSelf()
                 }
             }
-        })
+        }
+        requireActivity().onBackPressedDispatcher.addCallback(this, backCallback!!)
     }
 
     override fun onDestroyView() {

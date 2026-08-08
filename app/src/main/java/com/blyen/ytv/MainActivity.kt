@@ -23,6 +23,7 @@ import android.widget.TextView
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.activity.OnBackPressedCallback
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -132,6 +133,14 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         viewModel = ViewModelProvider(this)[MainViewModel::class.java]
+
+        // 返回键统一入口：Android 13+ 开启 enableOnBackInvokedCallback 后，BACK 不再走 onKeyDown/onBackPressed，
+        // 只能通过 dispatcher 的 callback 接管，否则系统会直接 finish（双击退出失效）
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                handleBack()
+            }
+        })
 
         // 初始化所有 Fragment
         if (savedInstanceState == null) {
@@ -1191,8 +1200,33 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // 保留原有 onKeyDown，仅处理返回键
-    override fun onBackPressed() {
+    // 处理按键：返回键由 onBackPressedDispatcher 的 callback 处理（Android 13+ 走 OnBackInvokedDispatcher，
+    // BACK 不再作为 KeyEvent 分发），其余方向键/确认键等转发给 onKey()
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        if (isInputDisabled) {
+            Log.d(TAG, "Key input blocked until listModel initialized, keyCode=$keyCode")
+            return true
+        }
+        if (onKey(keyCode)) {
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    /** 返回键：overlay 可见时先关闭，否则双击退出 */
+    private fun handleBack() {
+        if (menuFragment.isAdded && !menuFragment.isHidden) {
+            hideFragment(menuFragment)
+            return
+        }
+        if (sourceSelectFragment.isAdded && sourceSelectFragment.isVisible) {
+            sourceSelectFragment.hideSelf()
+            return
+        }
+        if (channelFragment.isAdded && channelFragment.isVisible) {
+            channelFragment.hideSelf()
+            return
+        }
         if (backPressedOnce) {
             finishAffinity()
             backPressedOnce = false

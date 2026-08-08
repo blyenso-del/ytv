@@ -64,22 +64,6 @@ MainActivity
 4. commit + annotated tag `vX.Y` → `git push` 分支与 tag
 5. `gh release create` 上传 APK（token：`GH_TOKEN` / `GITHUB_TOKEN` / git credential）
 
-## 下载
-
-Release 预编译包：
-
-- **[ytv_v0.3.3.apk](https://github.com/blyenso-del/ytv/releases/download/v0.3.3/ytv_v0.3.3.apk)**
-- 发布页：https://github.com/blyenso-del/ytv/releases/tag/v0.3.3
-
-## 安装
-
-```bash
-adb uninstall com.blyen.ytv   # 签名不一致时需先卸载
-adb push ytv_v0.3.3.apk /data/local/tmp/ytv_release.apk
-adb shell pm install -r -t /data/local/tmp/ytv_release.apk
-adb shell am start -n com.blyen.ytv/.MainActivity
-```
-
 ## 常用操作
 
 | 操作 | 行为 |

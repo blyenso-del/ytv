@@ -30,17 +30,20 @@ object HttpClient {
         createBuilder()
     }
 
-    /** 停掉所有在途请求与空闲连接，避免加载失败后仍狂拉分片拖死设备 */
+    /**
+     * 停掉所有在途请求，避免加载失败后仍狂拉分片拖死设备。
+     *
+     * 刻意**不** evictAll 连接池：狂拉分片来自 dispatcher 的在途请求，cancelAll 已完全覆盖；
+     * 而 evictAll 关闭的是不产生流量的空闲连接，唯一实际效果是强制下次重新 TLS 握手。
+     * 部分源站（如 iptv.852851.xyz）握手成功率仅约 60%，连接一旦建好却很稳定，
+     * 主动清池会让每次换台/重试都撞上握手失败 → 单线路频道无源可换 → "加载失败"。
+     * 复用不会用到坏连接：OkHttp 复用前会做健康检查，失效连接自动丢弃重建。
+     */
     fun cancelAllCalls() {
         try {
             okHttpClient.dispatcher.cancelAll()
         } catch (e: Exception) {
             Log.w(TAG, "cancelAll dispatcher: ${e.message}")
-        }
-        try {
-            okHttpClient.connectionPool.evictAll()
-        } catch (e: Exception) {
-            Log.w(TAG, "evictAll connections: ${e.message}")
         }
     }
 

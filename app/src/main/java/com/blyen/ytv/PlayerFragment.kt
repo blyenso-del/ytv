@@ -864,6 +864,15 @@ class PlayerFragment : Fragment() {
                         play(tv)
                         return
                     }
+                    // 1.5) 播放中途失效（曾成功播放过）→ 源站偶发卡顿（HLS playlist stuck / 瞬时断流），
+                    // 非线路真死：原地重试同 URL（等待源恢复），上限 2 次；单线路频道也走这里。
+                    // 起播就失败（everPlayedCurrent=false）不在此列，保持快速判死。
+                    if (everPlayedCurrent && tv.retryTimes < 2) {
+                        tv.retryTimes++
+                        Log.w(TAG, "Mid-playback error, retrying same URL: ${tv.tv.title} retry=${tv.retryTimes}")
+                        play(tv)
+                        return
+                    }
                     // 2) 换下一条线路
                     if (!tv.isLastVideo()) {
                         tv.nextVideo()

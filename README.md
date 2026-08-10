@@ -77,4 +77,4 @@ MainActivity
 
 ## License
 
-[MIT](LICENSE) © 2026
+[MIT](LICENSE) © 2026 TG 交流群：t.me/holy_ytv

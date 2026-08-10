@@ -15,7 +15,6 @@ object SP {
     private const val TAG = "SP"
     private const val KEY_CHANNEL_REVERSAL = "channel_reversal"
     private const val KEY_CHANNEL_NUM = "channel_num"
-    private const val KEY_TIME = "time"
     private const val KEY_BOOT_STARTUP = "boot_startup"
     private const val KEY_POSITION = "position"
     private const val KEY_POSITION_GROUP = "position_group"
@@ -50,7 +49,6 @@ object SP {
     const val DEFAULT_AUTO_SWITCH_SOURCE = false
     const val DEFAULT_CHANNEL_REVERSAL = false
     const val DEFAULT_CHANNEL_NUM = false
-    const val DEFAULT_TIME = true
     const val DEFAULT_BOOT_STARTUP = false
     const val DEFAULT_CONFIG_URL = ""
     const val DEFAULT_PROXY = ""
@@ -112,10 +110,6 @@ object SP {
     var channelNum: Boolean
         get() = sp.getBoolean(KEY_CHANNEL_NUM, DEFAULT_CHANNEL_NUM)
         set(value) = sp.edit() { putBoolean(KEY_CHANNEL_NUM, value) }
-
-    var time: Boolean
-        get() = sp.getBoolean(KEY_TIME, DEFAULT_TIME)
-        set(value) = sp.edit() { putBoolean(KEY_TIME, value) }
 
     var bootStartup: Boolean
         get() = sp.getBoolean(KEY_BOOT_STARTUP, DEFAULT_BOOT_STARTUP)

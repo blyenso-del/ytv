@@ -58,7 +58,6 @@ class MainActivity : AppCompatActivity() {
     internal val loadingFragment = com.blyen.ytv.LoadingFragment()
     internal var infoFragment = com.blyen.ytv.InfoFragment()
     internal var channelFragment = com.blyen.ytv.ChannelFragment()
-    internal var timeFragment = com.blyen.ytv.TimeFragment()
     internal var menuFragment = com.blyen.ytv.MenuFragment()
     internal var sourceSelectFragment = com.blyen.ytv.SourceSelectFragment()
 
@@ -976,14 +975,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    fun showTimeFragment() {
-        if (SP.time) {
-            showFragment(timeFragment)
-        } else {
-            hideFragment(timeFragment)
-        }
-    }
-
     private fun showChannel(channel: Int) {
         if (!menuFragment.isHidden) {
             return
@@ -1068,10 +1059,6 @@ class MainActivity : AppCompatActivity() {
             KEYCODE_ESCAPE, KEYCODE_BACK -> {
                 if (menuFragment.isAdded && !menuFragment.isHidden) {
                     hideFragment(menuFragment)
-                    return true
-                }
-                if (false) {
-                    showTimeFragment()
                     return true
                 }
                 if (channelFragment.isAdded && channelFragment.isVisible) {
@@ -1253,7 +1240,6 @@ class MainActivity : AppCompatActivity() {
             hideFragment(menuFragment)
             hideFragment(channelFragment)
             hideFragment(infoFragment)
-            hideFragment(timeFragment)
             hideFragment(errorFragment)
             hideFragment(loadingFragment)
             hideFragment(sourceSelectFragment)
@@ -1268,7 +1254,6 @@ class MainActivity : AppCompatActivity() {
                 playerFragment.exitPictureInPictureMode()
             }
             findViewById<View>(R.id.main_browse_fragment)?.requestFocus()
-            showTimeFragment()
             if (SP.channelNum && viewModel.groupModel.getCurrent() != null) {
                 channelFragment.show(viewModel.groupModel.getCurrent()!!)
             }
@@ -1279,7 +1264,6 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         isSafeToPerformFragmentTransactions = true
-        showTimeFragment()
         backPressedOnce = false
     }
 

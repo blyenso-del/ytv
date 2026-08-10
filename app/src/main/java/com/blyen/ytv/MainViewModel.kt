@@ -8,7 +8,6 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.blyen.ytv.Utils.getDateFormat
 import com.blyen.ytv.data.Global
 import com.blyen.ytv.data.Global.gson
 import com.blyen.ytv.data.Global.typeTvList
@@ -38,8 +37,6 @@ class MainViewModel : ViewModel() {
         _playTrigger.postValue(tvModel)
     }
 
-    private var timeFormat = if (SP.displaySeconds) "HH:mm:ss" else "HH:mm"
-
     private lateinit var appDirectory: File
     var listModel: List<TVModel> = emptyList()
     val groupModel = TVGroupModel()
@@ -50,10 +47,6 @@ class MainViewModel : ViewModel() {
     private val _channelsOk = MutableLiveData<Boolean>()
     val channelsOk: LiveData<Boolean>
         get() = _channelsOk
-
-    fun getTime(): String {
-        return getDateFormat(timeFormat)
-    }
 
     fun init(context: Context) {
         this.context = context

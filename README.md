@@ -74,7 +74,8 @@ MainActivity
 | 右键 | 换源 |
 | ▲▼ | 换台 |
 
+TG 交流群：[t.me/holy_ytv](https://t.me/holy_ytv)
 
 ## License
 
-[MIT](LICENSE) © 2026 TG 交流群：t.me/holy_ytv
+[MIT](LICENSE) © 2026      

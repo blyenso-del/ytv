@@ -653,7 +653,7 @@ class MainViewModel : ViewModel() {
         private const val TAG = "MainViewModel"
         const val CACHE_FILE_NAME = "codechannels.txt"
         /** GitHub Pages 自定义域：ytv1.ccwu.cc */
-        const val REMOTE_CHANNELS_URL = "https://ytv1.ccwu.cc/channels.txt"
+        const val REMOTE_CHANNELS_URL = "https://ytv1.ccwu.cc/output/live.m3u"
         private const val REMOTE_CACHE_FILE = "channels_remote_cache.txt"
     }
 }

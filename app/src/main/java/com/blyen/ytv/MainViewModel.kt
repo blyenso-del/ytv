@@ -91,19 +91,24 @@ class MainViewModel : ViewModel() {
                 }
                 tryStr2Channels(str, null, if (sourceId == "remote") REMOTE_CHANNELS_URL else "", sourceId)
                 withContext(Dispatchers.Main) {
-                    val first = listModel.firstOrNull()
-                    if (first != null) {
-                        groupModel.setCurrent(first)
-                        groupModel.setPositionPlaying()
+                    val favorites = groupModel.getFavoritesList()?.tvList?.value.orEmpty()
+                    val target = favorites.firstOrNull() ?: listModel.firstOrNull()
+                    if (target != null) {
+                        val targetGroupIndex = if (favorites.isNotEmpty()) 0 else groupModel.defaultPosition()
+                        groupModel.setPosition(targetGroupIndex)
+                        groupModel.setPositionPlaying(targetGroupIndex)
+                        groupModel.isInLikeMode = (targetGroupIndex == 0)
+                        groupModel.setCurrent(target)
                         groupModel.getCurrentList()?.let {
-                            it.setPosition(0)
+                            val idx = it.tvList.value?.indexOfFirst { m -> m.tv.id == target.tv.id } ?: 0
+                            it.setPosition(idx.coerceAtLeast(0))
                             it.setPositionPlaying()
                         }
-                        first.setReady()
-                        triggerPlay(first)
+                        target.setReady()
+                        triggerPlay(target)
                         Log.i(
                             TAG,
-                            "play source=$sourceId: ${first.tv.title} uris=${first.tv.uris.size} url=${first.getVideoUrl()}"
+                            "play source=$sourceId: ${target.tv.title} (isFavorite=${favorites.isNotEmpty()}) uris=${target.tv.uris.size} url=${target.getVideoUrl()}"
                         )
                     } else {
                         Log.w(TAG, "no channels after parse (source=$sourceId)")
@@ -599,6 +604,10 @@ class MainViewModel : ViewModel() {
             listModel = listModelNew
             groupModel.tvGroupValue[1].setTVListModel(listModelNew)
 
+            // 填充收藏列表
+            val favorites = listModelNew.filter { it.like.value == true }
+            groupModel.getFavoritesList()?.setTVListModel(favorites)
+
             // 仅当当前无有效 groupModel.current 或非稳定源时，恢复或设置默认
             val currentStableSource = SP.getStableSources().firstOrNull { it.id == groupModel.getCurrent()?.tv?.id }
             if (currentTvTitle != null) {
@@ -608,10 +617,15 @@ class MainViewModel : ViewModel() {
                     Log.d(TAG, "str2Channels: Restored groupModel.current to: ${matchingTvModel.tv.title}")
                 }
             } else if (groupModel.getCurrent() == null || currentStableSource == null) {
-                // 仅当无稳定源时设置默认频道
-                if (listModelNew.isNotEmpty()) {
-                    groupModel.setCurrent(listModelNew[0])
-                    Log.d(TAG, "str2Channels: Set default groupModel.current to: ${listModelNew[0].tv.title}")
+                // 优先选择收藏的第一个台，降级选择全量第一个台
+                val defaultTvModel = favorites.firstOrNull() ?: listModelNew.firstOrNull()
+                if (defaultTvModel != null) {
+                    val targetGroup = if (favorites.isNotEmpty()) 0 else groupModel.defaultPosition()
+                    groupModel.setPosition(targetGroup)
+                    groupModel.setPositionPlaying(targetGroup)
+                    groupModel.isInLikeMode = (targetGroup == 0)
+                    groupModel.setCurrent(defaultTvModel)
+                    Log.d(TAG, "str2Channels: Set default groupModel.current to: ${defaultTvModel.tv.title} (in group $targetGroup)")
                 }
             }
 

@@ -219,7 +219,8 @@ class MainActivity : AppCompatActivity() {
                     viewModel.groupModel.setCurrent(tvModel)
                     viewModel.groupModel.setPositionPlaying()
                     viewModel.groupModel.getCurrentList()?.let {
-                        it.setPosition(tvModel.listIndex.coerceAtLeast(0))
+                        val idx = it.tvList.value?.indexOfFirst { m -> m.tv.id == tvModel.tv.id } ?: 0
+                        it.setPosition(idx.coerceAtLeast(0))
                         it.setPositionPlaying()
                     }
                     // 不重复 setReady+triggerPlay 若已在播（PlayerFragment 也会去重）
@@ -346,7 +347,7 @@ class MainActivity : AppCompatActivity() {
                         val currentGroup = viewModel.groupModel.positionValue
                         menuFragment.updateList(currentGroup)
                         viewModel.groupModel.isInLikeMode =
-                            SP.defaultLike && viewModel.groupModel.positionValue == 0
+                            viewModel.groupModel.positionValue == 0
                     }
                 }
             }
@@ -698,14 +699,15 @@ class MainActivity : AppCompatActivity() {
     /** 换台：台号/列表立刻更新；起播合并到停手后再做（不走叠协程的 triggerPlay） */
     private fun switchChannel(delta: Int) {
         val prevGroup = viewModel.groupModel.positionValue
+        val inFavorites = viewModel.groupModel.positionValue == 0 && viewModel.groupModel.getFavoritesList() != null
         val tvModel = if (delta < 0) {
-            if (SP.defaultLike && viewModel.groupModel.isInLikeMode && viewModel.groupModel.getFavoritesList() != null) {
+            if (inFavorites) {
                 viewModel.groupModel.getPrev(true)
             } else {
                 viewModel.groupModel.getPrev()
             }
         } else {
-            if (SP.defaultLike && viewModel.groupModel.isInLikeMode && viewModel.groupModel.getFavoritesList() != null) {
+            if (inFavorites) {
                 viewModel.groupModel.getNext(true)
             } else {
                 viewModel.groupModel.getNext()
@@ -888,7 +890,7 @@ class MainActivity : AppCompatActivity() {
         if (urls.size <= 1) {
             // 单线路：重试当前 URL（错误恢复需要），不要静默 return
             Log.i(TAG, "sourceUp: single source retry for ${tvModel.tv.title}")
-            playerFragment.play(tvModel)
+            playerFragment.play(tvModel, force = true)
             showSourceInfo(1, 1)
             return
         }
@@ -896,7 +898,7 @@ class MainActivity : AppCompatActivity() {
         // 只调用一次 nextVideo 和 switchSource
         tvModel.nextVideo()
         tvModel.confirmVideoIndex()
-        playerFragment.play(tvModel)
+        playerFragment.play(tvModel, force = true)
         showSourceInfo(tvModel.videoIndexValue + 1, urls.size)
         Log.d(TAG, "sourceUp: switched to source ${tvModel.videoIndexValue + 1}, uris: ${tvModel.tv.uris.size}")
     }
@@ -931,7 +933,7 @@ class MainActivity : AppCompatActivity() {
         if (urls.size <= 1) {
             // 单线路：重试当前 URL（与 sourceUp 对称）
             Log.i(TAG, "sourceDown: single source retry for ${tvModel.tv.title}")
-            playerFragment.play(tvModel)
+            playerFragment.play(tvModel, force = true)
             showSourceInfo(1, 1)
             return
         }
@@ -939,7 +941,7 @@ class MainActivity : AppCompatActivity() {
         // 上一源
         tvModel.prevVideo()
         tvModel.confirmVideoIndex()
-        playerFragment.play(tvModel)
+        playerFragment.play(tvModel, force = true)
         showSourceInfo(tvModel.videoIndexValue + 1, urls.size)
         Log.d(TAG, "sourceDown: switched to source ${tvModel.videoIndexValue + 1}, uris: ${tvModel.tv.uris.size}")
     }
@@ -1159,11 +1161,8 @@ class MainActivity : AppCompatActivity() {
                 if (menuFragment.isAdded && !menuFragment.isHidden) {
                     return false
                 }
-                // 单次右键换源（设置入口已移除）
-                menuPressCount = 1
-                lastMenuPressTime = System.currentTimeMillis()
-                handler.removeCallbacks(handleRightRunnable)
-                handler.postDelayed(handleRightRunnable, 600)
+                // 右键换源
+                sourceUp()
                 return true
             }
         }

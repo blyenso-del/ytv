@@ -129,6 +129,8 @@ class PlayerFragment : Fragment() {
     private var playGeneration = 0
     /** 当前已 prepare 的 generation；错误回调若落后则丢弃 */
     private var preparedGeneration = 0
+    private var currentPlayingUrl: String? = null
+    private var currentPlayingChannelId: Int = -1
     private var pendingPlayModel: TVModel? = null
     /** 连切合并窗口：只 prepare 最后一台 */
     private val channelZapCoalesceMs = 550L
@@ -379,20 +381,10 @@ class PlayerFragment : Fragment() {
             "LOAD TIMEOUT HARD KILL #${consecutiveLoadTimeouts}: ${tv?.tv?.title} state=${p?.playbackState} url=${tv?.getVideoUrl()}"
         )
         abortCurrentPlayback("load-timeout")
-        handler.postDelayed({
-            try {
-                tv?.setErrInfo(R.string.play_error.getString())
-                if (isAdded && context != null) {
-                    Toast.makeText(requireContext(), "加载超时，请换台", Toast.LENGTH_SHORT).show()
-                }
-            } catch (_: Exception) {
-            }
-        }, 200)
         // 可再试一条线路
         if (consecutiveLoadTimeouts < maxConsecutiveLoadTimeouts && tv != null && !tv.isLastVideo()) {
             handler.postDelayed({
                 if (pendingPlayModel != null) return@postDelayed
-                if (player != null) return@postDelayed
                 try {
                     tv.nextVideo()
                     tv.confirmVideoIndex()
@@ -400,9 +392,18 @@ class PlayerFragment : Fragment() {
                 } catch (e: Exception) {
                     Log.e(TAG, "timeout next line: ${e.message}")
                 }
-            }, 600)
+            }, 300)
         } else {
             consecutiveLoadTimeouts = 0
+            handler.postDelayed({
+                try {
+                    tv?.setErrInfo(R.string.play_error.getString())
+                    if (isAdded && context != null) {
+                        Toast.makeText(requireContext(), "加载超时，请换台", Toast.LENGTH_SHORT).show()
+                    }
+                } catch (_: Exception) {
+                }
+            }, 200)
         }
     }
 
@@ -813,10 +814,6 @@ class PlayerFragment : Fragment() {
                 if (BuildConfig.PLAYBACK_ONLY && tvModel != null) {
                     val tv = tvModel!!
                     val now = System.currentTimeMillis()
-                    if (now - lastSwitchTime < 2000L) {
-                        Log.w(TAG, "PLAYBACK_ONLY error debounce, skip: ${tv.tv.title}")
-                        return
-                    }
                     lastSwitchTime = now
                     lastStopTime = 0L
                     val isDecoderish = error.errorCode in listOf(
@@ -845,7 +842,7 @@ class PlayerFragment : Fragment() {
                             tv.nextVideo()
                             tv.confirmVideoIndex()
                             tv.retryTimes = 0
-                            play(tv)
+                            play(tv, force = true)
                         } else {
                             tv.setErrInfo(R.string.play_error.getString())
                             try {
@@ -861,7 +858,7 @@ class PlayerFragment : Fragment() {
                     if (!isDecoderish && tv.retryTimes < 2 && tv.sourceTypeListSize() > 1) {
                         tv.nextSourceType()
                         tv.retryTimes++
-                        play(tv)
+                        play(tv, force = true)
                         return
                     }
                     // 1.5) 播放中途失效（曾成功播放过）→ 源站偶发卡顿（HLS playlist stuck / 瞬时断流），
@@ -870,7 +867,7 @@ class PlayerFragment : Fragment() {
                     if (everPlayedCurrent && tv.retryTimes < 2) {
                         tv.retryTimes++
                         Log.w(TAG, "Mid-playback error, retrying same URL: ${tv.tv.title} retry=${tv.retryTimes}")
-                        play(tv)
+                        play(tv, force = true)
                         return
                     }
                     // 2) 换下一条线路
@@ -878,7 +875,7 @@ class PlayerFragment : Fragment() {
                         tv.nextVideo()
                         tv.confirmVideoIndex()
                         tv.retryTimes = 0
-                        play(tv)
+                        play(tv, force = true)
                         return
                     }
                     // 3) 整台失败：停住提示，不自动连跳频道（切台必须用户可控）
@@ -1315,7 +1312,7 @@ class PlayerFragment : Fragment() {
 
         // 切线统一走 play()：release 旧 player + 合并，避免 player==null 静默失败
         Log.i(TAG, "switchSource -> play: ${tvModel.tv.title} idx=${tvModel.videoIndexValue}")
-        play(tvModel)
+        play(tvModel, force = true)
     }
 
     /**
@@ -1326,11 +1323,12 @@ class PlayerFragment : Fragment() {
     @OptIn(UnstableApi::class)
     fun play(tvModel: TVModel, force: Boolean = false) {
         val currentTime = System.currentTimeMillis()
-        val sameChannel = this.tvModel?.tv?.id == tvModel.tv.id
-                && this.tvModel?.videoIndexValue == tvModel.videoIndexValue
-                && this.tvModel?.getVideoUrl() == tvModel.getVideoUrl()
+        val targetUrl = tvModel.getVideoUrl()
+        val isSamePlayback = currentPlayingChannelId == tvModel.tv.id
+                && currentPlayingUrl != null
+                && currentPlayingUrl == targetUrl
         // 仅非 force 且已在 READY/播放 时跳过；加载中菜单 force 必须换台
-        if (!force && player != null && sameChannel && pendingPlayModel == null && !isPreparing &&
+        if (!force && player != null && isSamePlayback && pendingPlayModel == null && !isPreparing &&
             (player?.isPlaying == true || player?.playbackState == Player.STATE_READY)
         ) {
             Log.d(TAG, "Skip duplicate play for ${tvModel.tv.title}")
@@ -1440,6 +1438,8 @@ class PlayerFragment : Fragment() {
                 })
                 webFragment.viewLifecycleOwnerLiveData.observe(viewLifecycleOwner) { owner ->
                     if (owner != null && !isStalePlay(generation)) {
+                        currentPlayingUrl = tvModel.getVideoUrl()
+                        currentPlayingChannelId = tvModel.tv.id
                         webFragment.play(tvModel)
                     }
                 }
@@ -1587,6 +1587,8 @@ class PlayerFragment : Fragment() {
             p.prepare()
             p.playWhenReady = true
             preparedGeneration = generation
+            currentPlayingUrl = videoUrl
+            currentPlayingChannelId = tvModel.tv.id
             isPreparing = false
             consecutiveHeavySkips = 0
             dbg("IPTV prepare ok: ${tvModel.tv.title} #${tvModel.tv.number} url=$videoUrl gen=$generation")

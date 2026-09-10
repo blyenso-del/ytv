@@ -83,11 +83,25 @@ class MainActivity : AppCompatActivity() {
     private val DEBOUNCE_INTERVAL = 2000L
     private var backPressedOnce = false
 
+    private var rightPressCount = 0
+    private var lastRightPressTime = 0L
+    private val RIGHT_PRESS_INTERVAL = 800L
+
+    private fun dbg(msg: String) {
+        Log.i(TAG, msg)
+        try {
+            val f = java.io.File(filesDir, "player_debug.log")
+            f.appendText("${System.currentTimeMillis()} [Main] $msg\n")
+        } catch (_: Exception) {
+        }
+    }
+
     private val handleRightRunnable = Runnable {
-        if (menuPressCount == 1) { // 仅单次按右键触发 sourceUp
+        dbg("handleRightRunnable: rightPressCount=$rightPressCount, triggering sourceUp")
+        if (rightPressCount in 1..3) {
             sourceUp()
         }
-        menuPressCount = 0 // 重置计数
+        rightPressCount = 0
     }
 
     private val handleEnterRunnable = Runnable {
@@ -226,7 +240,7 @@ class MainActivity : AppCompatActivity() {
                     // 不重复 setReady+triggerPlay 若已在播（PlayerFragment 也会去重）
                     hideFragment(loadingFragment)
                     showFragment(playerFragment)
-                    playerFragment.setSourceButtonVisibility(true)
+                    playerFragment.setSourceButtonVisibility(false)
                     if (viewModel.playTrigger.value?.tv?.id != tvModel.tv.id) {
                         tvModel.setReady()
                         viewModel.triggerPlay(tvModel)
@@ -1161,8 +1175,29 @@ class MainActivity : AppCompatActivity() {
                 if (menuFragment.isAdded && !menuFragment.isHidden) {
                     return false
                 }
-                // 右键换源
-                sourceUp()
+                val currentTime = System.currentTimeMillis()
+                val timeSinceLastPress = currentTime - lastRightPressTime
+                dbg("DPAD_RIGHT: countBefore=$rightPressCount delta=${timeSinceLastPress}ms")
+
+                if (timeSinceLastPress <= RIGHT_PRESS_INTERVAL) {
+                    rightPressCount++
+                    if (rightPressCount >= 4) {
+                        dbg("DPAD_RIGHT: 4 clicks reached! Toggling showTime to ${!SP.showTime}")
+                        handler.removeCallbacks(handleRightRunnable)
+                        rightPressCount = 0
+                        SP.showTime = !SP.showTime
+                        playerFragment.updateTimeVisibility()
+                        val msgRes = if (SP.showTime) R.string.time_display_enabled else R.string.time_display_disabled
+                        msgRes.showToast()
+                        return true
+                    }
+                } else {
+                    rightPressCount = 1
+                }
+                lastRightPressTime = currentTime
+
+                handler.removeCallbacks(handleRightRunnable)
+                handler.postDelayed(handleRightRunnable, 850L)
                 return true
             }
         }

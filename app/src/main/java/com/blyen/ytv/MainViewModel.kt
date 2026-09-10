@@ -598,6 +598,7 @@ class MainViewModel : ViewModel() {
             listModelNew.forEachIndexed { index, tvModel ->
                 tvModel.listIndex = index
                 tvModel.tv = tvModel.tv.copy(id = index, number = index + 1)
+                tvModel.setLike(SP.getLike(index))
             }
 
             val groupMap = mutableMapOf<String, MutableList<TVModel>>()
@@ -622,8 +623,11 @@ class MainViewModel : ViewModel() {
             listModel = listModelNew
             groupModel.tvGroupValue[1].setTVListModel(listModelNew)
 
-            // 填充收藏列表
-            val favorites = listModelNew.filter { it.like.value == true }
+            // 填充收藏列表（按用户收藏的先后顺序排列）
+            val favoriteIds = SP.getFavoriteIds()
+            val favorites = favoriteIds.mapNotNull { favId ->
+                listModelNew.find { it.tv.id == favId }
+            }
             groupModel.getFavoritesList()?.setTVListModel(favorites)
 
             // 仅当当前无有效 groupModel.current 或非稳定源时，恢复或设置默认

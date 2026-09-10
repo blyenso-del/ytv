@@ -28,4 +28,6 @@
     <string name="unknown_source">未知源</string>
     <string name="load_failed">加载失败: %1$s</string>
     <string name="switched_to">已切换到 %1$s</string>
+    <string name="time_display_enabled">已开启时间显示</string>
+    <string name="time_display_disabled">已关闭时间显示</string>
 </resources>

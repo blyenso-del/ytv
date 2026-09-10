@@ -28,4 +28,6 @@
     <string name="unknown_source">Unknown source</string>
     <string name="load_failed">Load failed: %1$s</string>
     <string name="switched_to">Switched to %1$s</string>
+    <string name="time_display_enabled">Time display enabled</string>
+    <string name="time_display_disabled">Time display disabled</string>
 </resources>

@@ -26,6 +26,7 @@ object SP {
     private const val KEY_SHOW_ALL_CHANNELS = "show_all_channels"
     private const val KEY_COMPACT_MENU = "compact_menu"
     private const val KEY_LIKE = "like"
+    private const val KEY_LIKE_ORDERED = "like_ordered"
     private const val KEY_PROXY = "proxy"
     private const val KEY_VERSION = "version"
     private const val KEY_LOG_TIMES = "log_times"
@@ -34,6 +35,7 @@ object SP {
     private const val PREF_NAME = "YTV"
     private const val KEY_STABLE_SOURCES = "stable_sources"
     private const val KEY_SHOW_SOURCE_BUTTON = "show_source_button"
+    private const val KEY_SHOW_TIME = "show_time"
     private const val KEY_ENABLE_SCREEN_OFF_AUDIO = "enable_screen_off_audio"
     private const val KEY_FULL_SCREEN_MODE = "full_screen_mode"
     private const val RESOLUTION_CACHE_PREFIX = "resolution_"
@@ -46,6 +48,7 @@ object SP {
 
     const val DEFAULT_ENABLE_SCREEN_OFF_AUDIO = true
     const val DEFAULT_SHOW_SOURCE_BUTTON = true
+    const val DEFAULT_SHOW_TIME = true
     const val DEFAULT_AUTO_SWITCH_SOURCE = false
     const val DEFAULT_CHANNEL_REVERSAL = false
     const val DEFAULT_CHANNEL_NUM = false
@@ -92,6 +95,10 @@ object SP {
         // 初始化 showSourceButton
         if (!sp.contains(KEY_SHOW_SOURCE_BUTTON)) {
             sp.edit(commit = true) { putBoolean(KEY_SHOW_SOURCE_BUTTON, DEFAULT_SHOW_SOURCE_BUTTON) }
+        }
+
+        if (!sp.contains(KEY_SHOW_TIME)) {
+            sp.edit(commit = true) { putBoolean(KEY_SHOW_TIME, DEFAULT_SHOW_TIME) }
         }
 
         if (!sp.contains(KEY_SOFT_DECODE)) {
@@ -159,20 +166,67 @@ object SP {
             }
         }
 
-    fun getLike(id: Int): Boolean {
-        val stringSet = sp.getStringSet(KEY_LIKE, emptySet())
-        return stringSet?.contains(id.toString()) ?: false
-    }
+    private var cachedFavorites: MutableList<Int>? = null
 
-    fun setLike(id: Int, liked: Boolean) {
-        val stringSet = sp.getStringSet(KEY_LIKE, emptySet())?.toMutableSet() ?: mutableSetOf()
-        if (liked) {
-            stringSet.add(id.toString())
-        } else {
-            stringSet.remove(id.toString())
+    @Synchronized
+    fun getFavoriteIds(): List<Int> {
+        cachedFavorites?.let { return it }
+        val json = sp.getString(KEY_LIKE_ORDERED, null)
+        if (json != null) {
+            val list = try {
+                gson.fromJson(json, Array<Int>::class.java)?.toMutableList() ?: mutableListOf()
+            } catch (e: Exception) {
+                mutableListOf()
+            }
+            cachedFavorites = list
+            return list
         }
 
-        sp.edit() { putStringSet(KEY_LIKE, stringSet) }
+        val oldSet = try {
+            sp.getStringSet(KEY_LIKE, null)
+        } catch (e: Exception) {
+            null
+        }
+
+        if (!oldSet.isNullOrEmpty()) {
+            val migrated = oldSet.mapNotNull { it.toIntOrNull() }.toMutableList()
+            cachedFavorites = migrated
+            val newJson = gson.toJson(migrated)
+            sp.edit {
+                putString(KEY_LIKE_ORDERED, newJson)
+                remove(KEY_LIKE)
+            }
+            return migrated
+        }
+
+        val empty = mutableListOf<Int>()
+        cachedFavorites = empty
+        return empty
+    }
+
+    @Synchronized
+    fun setFavoriteIds(list: List<Int>) {
+        cachedFavorites = list.toMutableList()
+        val json = gson.toJson(list)
+        sp.edit { putString(KEY_LIKE_ORDERED, json) }
+    }
+
+    @Synchronized
+    fun getLike(id: Int): Boolean {
+        return getFavoriteIds().contains(id)
+    }
+
+    @Synchronized
+    fun setLike(id: Int, liked: Boolean) {
+        val list = getFavoriteIds().toMutableList()
+        if (liked) {
+            if (!list.contains(id)) {
+                list.add(id)
+            }
+        } else {
+            list.removeAll { it == id }
+        }
+        setFavoriteIds(list)
     }
 
     var proxy: String?
@@ -198,6 +252,19 @@ object SP {
     var showSourceButton: Boolean
         get() = sp.getBoolean(KEY_SHOW_SOURCE_BUTTON, DEFAULT_SHOW_SOURCE_BUTTON)
         set(value) = sp.edit() { putBoolean(KEY_SHOW_SOURCE_BUTTON, value) }
+
+    var showTime: Boolean
+        get() {
+            if (!::sp.isInitialized) {
+                return DEFAULT_SHOW_TIME
+            }
+            return sp.getBoolean(KEY_SHOW_TIME, DEFAULT_SHOW_TIME)
+        }
+        set(value) {
+            if (::sp.isInitialized) {
+                sp.edit { putBoolean(KEY_SHOW_TIME, value) }
+            }
+        }
 
     var fullScreenMode: Boolean
         get() {

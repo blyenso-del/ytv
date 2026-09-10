@@ -24,7 +24,7 @@
 | 播放 | AndroidX Media3 ExoPlayer 1.5.x |
 | 网络 | OkHttp |
 | 构建 | Gradle (Kotlin DSL) |
-| 版本 | 0.3.9（versionCode 39） |
+| 版本 | 0.5（versionCode 50） |
 
 ## 架构概览
 

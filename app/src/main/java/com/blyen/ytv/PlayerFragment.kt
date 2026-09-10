@@ -27,6 +27,7 @@ import androidx.media3.common.Player.DISCONTINUITY_REASON_AUTO_TRANSITION
 import androidx.media3.common.Player.REPEAT_MODE_ALL
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
@@ -469,6 +470,7 @@ class PlayerFragment : Fragment() {
             setSourceButtonVisibility(false)
             binding.icon.visibility = View.GONE
             binding.volume.visibility = View.GONE
+            binding.clock.visibility = View.GONE
             binding.playerView.clearFocus()
         }
         isInPictureInPictureMode = true
@@ -484,8 +486,28 @@ class PlayerFragment : Fragment() {
         if (_binding != null) {
             isInPictureInPictureMode = false
             setSourceButtonVisibility(isTouchScreenDevice() && SP.showSourceButton)
+            updateTimeVisibility()
             onFullScreenModeChanged()
             Log.d(TAG, "Exiting Picture-in-Picture mode, btn_source visible=${binding.btnSource.isVisible}")
+        }
+    }
+
+    fun updateTimeVisibility() {
+        if (_binding != null) {
+            val shouldShow = SP.showTime && !isInPictureInPictureMode
+            binding.clock.visibility = if (shouldShow) View.VISIBLE else View.GONE
+            if (shouldShow) {
+                binding.clock.bringToFront()
+            }
+        }
+    }
+
+    private fun bringOverlaysToFront() {
+        if (_binding != null) {
+            binding.channelControls.bringToFront()
+            binding.clock.bringToFront()
+            binding.icon.bringToFront()
+            binding.volume.bringToFront()
         }
     }
 
@@ -512,12 +534,15 @@ class PlayerFragment : Fragment() {
         // 勿再次 updatePlayer()：会 release 刚创建的 ExoPlayer 并可能导致进程崩溃
         (activity as MainActivity).ready()
 
+        // 初始化右上角时间显示状态
+        updateTimeVisibility()
+
         val btnSource = view.findViewById<Button>(R.id.btn_source)
         val btnUp = view.findViewById<Button>(R.id.btn_channel_up)
         val btnDown = view.findViewById<Button>(R.id.btn_channel_down)
 
-        // PLAYBACK_ONLY / 触摸屏：常显换台与切线按钮
-        setSourceButtonVisibility(true)
+        // 不再显示右侧换台与切线按钮
+        setSourceButtonVisibility(false)
 
         btnUp?.setOnClickListener {
             (activity as? MainActivity)?.let {
@@ -565,20 +590,17 @@ class PlayerFragment : Fragment() {
         val btnSource = binding.root.findViewById<Button>(R.id.btn_source) ?: return
         val btnUp = binding.root.findViewById<Button>(R.id.btn_channel_up)
         val btnDown = binding.root.findViewById<Button>(R.id.btn_channel_down)
-        // 非画中画时始终显示，方便上下换台
-        val shouldShow = visible && !isInPictureInPictureMode
-        val vis = if (shouldShow) View.VISIBLE else View.GONE
+        val shouldShow = false
+        val vis = View.GONE
         controls?.visibility = vis
         listOf(btnSource, btnUp, btnDown).forEach { b ->
             b?.visibility = vis
-            // 按钮仅触摸点击，不可聚焦：避免错误页/任意时刻焦点落在按钮上，
-            // DPAD 被按钮焦点导航消费导致换台按键到不了 Activity（401 后无法切台）
             b?.isFocusable = false
-            b?.isEnabled = shouldShow
+            b?.isEnabled = false
             b?.isFocusableInTouchMode = false
         }
-        isSourceButtonVisible = shouldShow
-        Log.d(TAG, "setSourceButtonVisibility: shouldShow=$shouldShow")
+        isSourceButtonVisible = false
+        Log.d(TAG, "setSourceButtonVisibility: shouldShow=false")
     }
 
     // 新增：播放状态回调接口
@@ -622,7 +644,18 @@ class PlayerFragment : Fragment() {
 
         activeLoadTimeoutMs = loadTimeoutMs
 
-        // 对齐 GitHub：不自定义 LoadControl，用 Media3 默认缓冲（更贴近上游起播/抗抖）
+        // 缓冲控制：起播 2.5s 保障切台响应，二次缓冲 7s + 时间优先吸收推流抖动，防止贴边周期性卡顿
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                /* minBufferMs = */ 30_000,
+                /* maxBufferMs = */ 60_000,
+                /* bufferForPlaybackMs = */ 2_500,
+                /* bufferForPlaybackAfterRebufferMs = */ 7_000
+            )
+            .setPrioritizeTimeOverSizeThresholds(true)
+            .setBackBuffer(10_000, /* retainBackBufferFromKeyframe= */ false)
+            .build()
+
         // 多档仍 cap 1080p，避免手机硬扛 4K 死机（GitHub 无 cap，此处保留为最优）
         val ts = DefaultTrackSelector(ctx)
         ts.parameters = ts.buildUponParameters()
@@ -636,6 +669,7 @@ class PlayerFragment : Fragment() {
         player = ExoPlayer.Builder(ctx)
             .setRenderersFactory(renderersFactory)
             .setTrackSelector(ts)
+            .setLoadControl(loadControl)
             .build()
         player?.repeatMode = Player.REPEAT_MODE_OFF
         player?.playWhenReady = true
@@ -1114,6 +1148,7 @@ class PlayerFragment : Fragment() {
             binding.webView.visibility = View.VISIBLE
             binding.playerView.visibility = View.GONE
             binding.webView.bringToFront()
+            bringOverlaysToFront()
             currentWebFragment()?.updateWebViewLayout()
             binding.webView.requestFocus()
             binding.webView.isFocusable = true
@@ -1405,6 +1440,7 @@ class PlayerFragment : Fragment() {
             binding.webView.visibility = View.VISIBLE
             binding.webView.requestLayout()
             binding.webView.bringToFront()
+            bringOverlaysToFront()
             try {
                 val webFragment = WebFragment()
                 if (isAdded && !isDetached && !childFragmentManager.isStateSaved) {
@@ -1468,6 +1504,7 @@ class PlayerFragment : Fragment() {
             // 对齐 GitHub IPTV：ALWAYS；起播慢时可见转圈（比 WHEN_PLAYING 更贴近上游）
             binding.playerView.setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
             binding.playerView.bringToFront()
+            bringOverlaysToFront()
             updatePlayerViewLayout()
             binding.playerView.requestFocus()
 

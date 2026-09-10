@@ -89,7 +89,7 @@ class MainViewModel : ViewModel() {
                     }
                     return@launch
                 }
-                tryStr2Channels(str, null, if (sourceId == "remote") REMOTE_CHANNELS_URL else "", sourceId)
+                tryStr2Channels(str, null, if (sourceId == "remote") BuildConfig.CHANNELS_URL else "", sourceId)
                 withContext(Dispatchers.Main) {
                     val favorites = groupModel.getFavoritesList()?.tvList?.value.orEmpty()
                     val target = favorites.firstOrNull() ?: listModel.firstOrNull()
@@ -127,44 +127,62 @@ class MainViewModel : ViewModel() {
     }
 
     /**
-     * 远程 M3U → 本地磁盘缓存。
-     * @return Pair(文本, 来源标记 remote|cache)；均失败返回空串
+     * M3U 源加载（支持 asset:// 本地资产与 http(s):// 远程下载）→ 本地磁盘缓存。
+     * @return Pair(文本, 来源标记 asset|remote|cache)；均失败返回空串
      */
     private fun loadChannelsText(): Pair<String, String> {
-        // 1) 远程
-        try {
-            val client = HttpClient.okHttpClient.newBuilder()
-                .connectTimeout(8, TimeUnit.SECONDS)
-                .readTimeout(12, TimeUnit.SECONDS)
-                .callTimeout(15, TimeUnit.SECONDS)
-                .build()
-            val req = Request.Builder()
-                .url(REMOTE_CHANNELS_URL)
-                .header("User-Agent", "YTV/${BuildConfig.VERSION_NAME}")
-                .get()
-                .build()
-            client.newCall(req).execute().use { resp ->
-                if (!resp.isSuccessful) {
-                    throw java.io.IOException("http ${resp.codeAlias()}")
+        val sourceUrl = BuildConfig.CHANNELS_URL
+
+        // 1) 本地 asset 资产
+        if (sourceUrl.startsWith("asset://")) {
+            val assetName = sourceUrl.removePrefix("asset://")
+            try {
+                val body = context.assets.open(assetName).bufferedReader().use { it.readText() }
+                if (looksLikeM3u(body)) {
+                    Log.i(TAG, "channels from asset: $assetName len=${body.length}")
+                    return body to "asset"
                 }
-                val body = resp.bodyAlias()?.string().orEmpty()
-                if (!looksLikeM3u(body)) {
-                    throw java.io.IOException("not m3u, len=${body.length}")
-                }
-                // 成功则写缓存，供下次离线/失败回退
-                try {
-                    File(appDirectory, REMOTE_CACHE_FILE).writeText(body)
-                } catch (e: Exception) {
-                    Log.w(TAG, "write remote cache: ${e.message}")
-                }
-                Log.i(TAG, "channels from remote: $REMOTE_CHANNELS_URL len=${body.length}")
-                return body to "remote"
+            } catch (e: Exception) {
+                Log.e(TAG, "load asset channels failed: ${e.message}", e)
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "remote channels failed: ${e.message}")
         }
 
-        // 2) 上次成功下载的缓存
+        // 2) 远程 HTTP/HTTPS
+        if (sourceUrl.startsWith("http://") || sourceUrl.startsWith("https://")) {
+            try {
+                val client = HttpClient.okHttpClient.newBuilder()
+                    .connectTimeout(8, TimeUnit.SECONDS)
+                    .readTimeout(12, TimeUnit.SECONDS)
+                    .callTimeout(15, TimeUnit.SECONDS)
+                    .build()
+                val req = Request.Builder()
+                    .url(sourceUrl)
+                    .header("User-Agent", "YTV/${BuildConfig.VERSION_NAME}")
+                    .get()
+                    .build()
+                client.newCall(req).execute().use { resp ->
+                    if (!resp.isSuccessful) {
+                        throw java.io.IOException("http ${resp.codeAlias()}")
+                    }
+                    val body = resp.bodyAlias()?.string().orEmpty()
+                    if (!looksLikeM3u(body)) {
+                        throw java.io.IOException("not m3u, len=${body.length}")
+                    }
+                    // 成功则写缓存，供下次离线/失败回退
+                    try {
+                        File(appDirectory, REMOTE_CACHE_FILE).writeText(body)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "write remote cache: ${e.message}")
+                    }
+                    Log.i(TAG, "channels from remote: $sourceUrl len=${body.length}")
+                    return body to "remote"
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "remote channels failed: ${e.message}")
+            }
+        }
+
+        // 3) 上次成功下载的缓存
         try {
             val cache = File(appDirectory, REMOTE_CACHE_FILE)
             if (cache.exists()) {
@@ -182,7 +200,7 @@ class MainViewModel : ViewModel() {
     }
 
     private fun looksLikeM3u(text: String): Boolean {
-        val t = text.trimStart()
+        val t = text.removePrefix("\uFEFF").trimStart()
         return t.startsWith("#EXTM3U") || t.startsWith("#EXTINF") ||
             t.startsWith("http://") || t.startsWith("https://")
     }

@@ -31,7 +31,7 @@ app/build/
 .serena/
 release.bat
 release.ps1
-
+*.m3u
 
 dist/
 

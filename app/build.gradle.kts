@@ -46,6 +46,7 @@ android {
             )
             buildConfigField("boolean", "ENABLE_LOG", "false")
             buildConfigField("boolean", "PLAYBACK_ONLY", "true")
+            buildConfigField("String", "CHANNELS_URL", "\"https://ytv1.ccwu.cc/output/live.m3u\"")
             val releaseSigning = signingConfigs.findByName("release")
             if (releaseSigning?.storeFile?.exists() == true) {
                 signingConfig = releaseSigning
@@ -59,6 +60,7 @@ android {
             )
             buildConfigField("boolean", "ENABLE_LOG", "true")
             buildConfigField("boolean", "PLAYBACK_ONLY", "true")
+            buildConfigField("String", "CHANNELS_URL", "\"asset://live.m3u\"")
         }
     }
 
